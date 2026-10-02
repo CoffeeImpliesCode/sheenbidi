@@ -1,0 +1,306 @@
+# Verification for this fork's Zig package.
+#
+# This file is written for this repository and names this repository's gates.
+# It does not replace or retarget the CI that came with the import:
+# `.github/workflows/linux.yml`, `macos.yml` and `windows.yml` and
+# `.appveyor.yml` are upstream's, they build upstream's CMake and meson
+# projects with upstream's text API enabled, and they upload to upstream's
+# Coveralls and AppVeyor accounts. They are left exactly as they arrived.
+#
+# Three jobs, three different questions:
+#   native    does the complete unity core build here, do the behavioral tests
+#             pass in the two modes where Zig's safety checks are live, and does
+#             the example produce its output on this host
+#   cross     does the same graph compile and link for each of the six targets
+#             this package claims, with every public facade method instantiated
+#   consumer  does the published module resolve from a package that did not
+#             write it
+#
+# Two things this workflow deliberately does not do.
+#
+# It does not mark any target `continue-on-error`. Nothing here has been observed
+# to fail, and pre-labelling a failure as expected is a claim about a run that
+# never happened. If a target turns out to be unsupported, the fix is to say so
+# in this file with the compiler output that showed it, not to silence it.
+#
+# It does not exercise `-fsys=sheenbidi`. That mode links an installed
+# libSheenBidi, and no packaged SheenBidi is this manifest's pinned 3.0.0 with
+# this manifest's headers; installing an arbitrary distro build and translating
+# these headers against it is exactly the header/ABI mismatch the fork contract
+# forbids. The mode stays available to a user who has installed a matching
+# release, and it is documented in `build.zig` and the package documentation.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native build, tests and smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      # Installs zig-out/lib/libSheenBidi.a and every public header under
+      # zig-out/include/SheenBidi/, and compiles smoke.zig.
+
+      - name: Immutable source and Unicode fixture integrity
+        run: sha256sum -c UPSTREAM.sha256
+      - name: build
+        run: zig build
+
+      # Every other step in this job reaches SheenBidi through the Zig
+      # facade. This one reaches it the way a C program does: the aggregate
+      # public header, the installed static archive, and no Zig code at all.
+      # None of the other steps would notice a facade that is correct while
+      # the C surface a C caller compiles against is not, and the fork is a
+      # C library first.
+      #
+      # The expected values are derived from the Unicode Bidirectional
+      # Algorithm in the comments inside the program, not read back out of
+      # this build, so a wrong answer and a wrong expectation fail it
+      # differently.
+      - name: installed C headers compile, link and run
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/c_surface_gate.c" <<'C'
+          /* The installed SheenBidi C surface, reached the way a C program
+             reaches it: the aggregate public header, the installed static
+             archive, and no Zig code at all. Every other step in this job
+             reaches the library through the facade, so none of them would
+             notice a facade that is correct while the C surface a C caller
+             compiles against is not, and the fork is a C library first. */
+          #include <SheenBidi/SheenBidi.h>
+          #include <stdio.h>
+
+          /* "abc " followed by U+05D0 HEBREW LETTER ALEF and U+05D1 HEBREW
+             LETTER BET: eight UTF-8 code units, six code points, two of them
+             Hebrew. */
+          static const char kText[] = "abc \xd7\x90\xd7\x91";
+
+          #define kCodeUnits ((SBUInteger)(sizeof kText - 1))
+
+          static int gFailures = 0;
+
+          static void expect(int condition, const char *what) {
+              if (condition) {
+                  printf("ok    %s\n", what);
+              } else {
+                  printf("FAIL  %s\n", what);
+                  gFailures += 1;
+              }
+          }
+
+          static void expectAt(SBUInteger index, int condition, const char *what) {
+              if (condition) {
+                  printf("ok    [%lu] %s\n", (unsigned long)index, what);
+              } else {
+                  printf("FAIL  [%lu] %s\n", (unsigned long)index, what);
+                  gFailures += 1;
+              }
+          }
+
+          int main(void) {
+              /* An explicit base level, and the header's "read it off the
+                 text" request. Both have to reach the same paragraph, and
+                 neither is answered by the caller. */
+              static const SBLevel requested[2] = { 0, SBLevelDefaultLTR };
+              SBCodepointSequence sequence;
+              SBAlgorithmRef algorithm;
+              SBParagraphRef paragraph;
+              SBParagraphRef keptParagraph;
+              SBLineRef line;
+              SBLineRef keptLine;
+              const SBLevel *levels;
+              const SBRun *runs;
+              SBUInteger index;
+              SBCodepoint codepoint;
+              int i;
+
+              sequence.stringEncoding = SBStringEncodingUTF8;
+              sequence.stringBuffer = kText;
+              sequence.stringLength = kCodeUnits;
+              expect(kCodeUnits == 8, "the fixture is eight UTF-8 code units");
+
+              /* The code point surface, walked from the first code unit of
+                 the Hebrew pair to the one past the end of the buffer.
+                 SBCodepointSequenceGetCodepointAt advances its index to the
+                 start of the next code point, so each Hebrew letter moves it
+                 by two, and the index sitting at the end is the boundary the
+                 header documents as SBCodepointInvalid. */
+              index = 4;
+              codepoint = SBCodepointSequenceGetCodepointAt(&sequence, &index);
+              expect(codepoint == 0x05D0, "code unit 4 is U+05D0 HEBREW ALEF");
+              expect(index == 6, "ALEF ends at code unit 6");
+              codepoint = SBCodepointSequenceGetCodepointAt(&sequence, &index);
+              expect(codepoint == 0x05D1, "code unit 6 is U+05D1 HEBREW BET");
+              expect(index == 8, "BET ends at code unit 8");
+              codepoint = SBCodepointSequenceGetCodepointAt(&sequence, &index);
+              expect(codepoint == SBCodepointInvalid, "code unit 8 is the end");
+              expect(index == 8, "a rejected index is left where it was");
+
+              algorithm = SBAlgorithmCreate(&sequence);
+              expect(algorithm != NULL, "SBAlgorithmCreate");
+              if (algorithm == NULL) {
+                  return 1;
+              }
+
+              for (i = 0; i < 2; i++) {
+                  printf("-- base level request: %s\n",
+                         i == 0 ? "0" : "SBLevelDefaultLTR");
+
+                  paragraph = SBAlgorithmCreateParagraph(algorithm, 0, kCodeUnits,
+                                                         requested[i]);
+                  expect(paragraph != NULL, "SBAlgorithmCreateParagraph");
+                  if (paragraph == NULL) {
+                      continue;
+                  }
+                  expect(SBParagraphGetBaseLevel(paragraph) == 0,
+                         "the resolved base level is 0");
+
+                  /* Derived from the rules, not read back from this build.
+                     Rules P2 and P3 take the leading U+0061 as the first
+                     strong character, so the base level is even. The three
+                     Latin letters stay at 0, and so does the space: it is a
+                     neutral between an L on the left and an R on the right,
+                     which rule N1 cannot resolve, so rule N2 gives it the
+                     embedding direction. Rules I1 and I2 then raise each
+                     Hebrew letter, two code units each, from the even level
+                     to the next odd one. */
+                  levels = SBParagraphGetLevelsPtr(paragraph);
+                  expect(levels != NULL, "SBParagraphGetLevelsPtr");
+                  for (index = 0; levels != NULL && index < kCodeUnits; index++) {
+                      expectAt(index, levels[index] == (index < 4 ? 0 : 1),
+                               "embedding level");
+                  }
+
+                  line = SBParagraphCreateLine(paragraph, 0, kCodeUnits);
+                  expect(line != NULL, "SBParagraphCreateLine");
+                  if (line == NULL) {
+                      SBParagraphRelease(paragraph);
+                      continue;
+                  }
+                  expect(SBLineGetRunCount(line) == 2,
+                         "the line has two visual runs");
+
+                  /* The run array belongs to the line and is borrowed here,
+                     so it is read before the line is released. */
+                  runs = SBLineGetRunsPtr(line);
+                  expect(runs != NULL, "SBLineGetRunsPtr");
+                  for (index = 0; runs != NULL && index < 2; index++) {
+                      expectAt(index, runs[index].offset == index * (SBUInteger)4,
+                               "run offset");
+                      expectAt(index, runs[index].length == 4, "run length");
+                      expectAt(index, runs[index].level == (SBLevel)index,
+                               "run level");
+                  }
+
+                  /* The ownership graph, not a copy: a retained handle keeps
+                     the line alive after the handle that created it is
+                     released, and the runs it still hands out are the ones
+                     the algorithm produced. */
+                  keptLine = SBLineRetain(line);
+                  expect(keptLine == line, "SBLineRetain returns the same object");
+                  SBLineRelease(line);
+                  expect(SBLineGetRunCount(keptLine) == 2,
+                         "the line outlives the released handle");
+                  expect(SBLineGetRunsPtr(keptLine)[1].level == 1,
+                         "and its run array is still readable");
+                  SBLineRelease(keptLine);
+                  SBParagraphRelease(paragraph);
+              }
+
+              /* SBAlgorithmCreateParagraph retains the algorithm it is given
+                 (Source/API/SBParagraph.c stores that reference in
+                 paragraph->_algorithm), so the paragraph is still usable once
+                 the caller's algorithm handle is gone. */
+              paragraph = SBAlgorithmCreateParagraph(algorithm, 0, kCodeUnits,
+                                                     SBLevelDefaultLTR);
+              expect(paragraph != NULL, "paragraph for the ownership check");
+              keptParagraph = SBParagraphRetain(paragraph);
+              expect(keptParagraph == paragraph,
+                     "SBParagraphRetain returns the same object");
+              SBParagraphRelease(paragraph);
+              SBAlgorithmRelease(algorithm);
+              expect(SBParagraphGetBaseLevel(keptParagraph) == 0,
+                     "the paragraph outlives the released algorithm");
+              expect(SBParagraphGetLevelsPtr(keptParagraph)[4] == 1,
+                     "and its levels are still readable");
+              SBParagraphRelease(keptParagraph);
+
+              if (gFailures != 0) {
+                  printf("%d check(s) failed\n", gFailures);
+                  return 1;
+              }
+
+              printf("the installed C surface compiled, linked and ran\n");
+              return 0;
+          }
+          C
+          # No configuration macro is passed, and none is needed. The only
+          # SB_CONFIG_* the core is built with is SB_CONFIG_UNITY, which turns
+          # SB_INTERNAL into `static` for the library build and says nothing
+          # about a consumer's view of the headers; Headers/SheenBidi/SBConfig.h
+          # ships every macro commented out, so the aggregate a C caller
+          # includes is the unconfigured one.
+          zig cc \
+            -I zig-out/include \
+            "$RUNNER_TEMP/c_surface_gate.c" \
+            zig-out/lib/libSheenBidi.a \
+            -o "$RUNNER_TEMP/c_surface_gate"
+          "$RUNNER_TEMP/c_surface_gate"
+
+      # One command, both modes: the `test` step builds and runs tests.zig in
+      # Debug and in ReleaseSafe itself, so running it twice with -Doptimize
+      # would execute the same two binaries again and prove nothing extra.
+      - name: test (Debug and ReleaseSafe)
+        run: zig build test
+
+      - name: smoke
+        run: zig build smoke
+
+  cross:
+    name: check ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - aarch64-macos-none
+          - x86_64-windows-gnu
+          - riscv64-linux-gnu
+          - wasm32-wasi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Compile the full library and public API
+        run: zig build check -Dtarget=${{ matrix.target }} --summary all
+
+  consumer:
+    name: consumer package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      # The failure this catches is the one the library's own tests cannot see:
+      # a module that builds from the inside and does not resolve from outside.
+      - name: run
+        working-directory: consumer
+        run: zig build run

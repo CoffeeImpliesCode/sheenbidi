@@ -24,3 +24,11 @@ xcuserdata/
 *.moved-aside
 *.xccheckout
 *.xcscmblueprint
+
+## Zig build output
+##
+## Added by this fork; every rule above is upstream's and is kept verbatim.
+/.zig-cache/
+/zig-out/
+/consumer/.zig-cache/
+/consumer/zig-out/

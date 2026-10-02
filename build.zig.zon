@@ -1,0 +1,79 @@
+.{
+    // This is the default name used by packages depending on this one.
+    .name = .sheenbidi,
+    // Upstream SheenBidi 3.0.0, carried unchanged. `build.zig` refuses to
+    // configure if this drifts away from the pin it holds, so a version bump
+    // is a decision and not a side effect.
+    .version = "3.0.0",
+    // Identifies this package unambiguously. The value is the one the pinned
+    // Zig 0.16.0 compiler reported for `.name = .sheenbidi`; it belongs to this
+    // manifest only and must not be copied from another package in this
+    // workspace.
+    .fingerprint = 0x684adc4fabea833c, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.16.0",
+
+    .dependencies = .{},
+
+    // Every root path of the repository, minus build output. `.zig-cache/` and
+    // `zig-out/` are absent by construction, and the upstream ignore rules in
+    // `.gitignore` keep them out of the tree as well.
+    //
+    // Provenance, licence and source-integrity records ship with the package.
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        // The Zig facade and the translate-c root. Both are fork-authored; the
+        // C tree below stays exactly upstream's.
+        "zig",
+        // The harness settings for the published 53-platform `cross-test`
+        // matrix. Fork-authored configuration, not documentation and not a
+        // build input: nothing in this package's `build.zig` reads it. It
+        // ships so a fetched copy is the whole package, and it is listed here
+        // rather than left to `.gitignore`, which does not exclude it.
+        "cross-test.profile.sh",
+        // The test root and the example. They live at the package root on
+        // purpose: that is the directory `Tools/Unicode` is reachable from for
+        // `@embedFile`, and a module rooted under `zig/` could not reach it.
+        "tests.zig",
+        "smoke.zig",
+        // The separate consumer package, proving the published module resolves
+        // from a package that did not write it.
+        "consumer",
+        // The upstream C library, whole. `Source` is a directory entry, so it
+        // carries Source/API, Source/Core, Source/Data, Source/Script,
+        // Source/Text and Source/UBA with it. They are not listed as root
+        // entries because there is nothing at the repository root by those
+        // names, and a `.paths` entry naming a missing file is a hard
+        // configure error rather than a warning.
+        "Headers",
+        "Source",
+        // Upstream's UCD 17.0.0 inputs, parser and table generator, and the
+        // upstream test suite. This build compiles none of them; they are kept
+        // so the checked-in `Source/Data` tables can be traced to the data they
+        // came from and regenerated deliberately.
+        "Tools",
+        "Tests",
+        // Upstream's build systems, kept so a re-sync has something to diff
+        // against and so the licence and provenance of the import stay visible.
+        "CMakeLists.txt",
+        "Makefile",
+        "meson.build",
+        "meson_options.txt",
+        "SheenBidi.cmake.in",
+        "sheenbidi.pc.in",
+        "LICENSE",
+        "README.md",
+        "UPSTREAM.md",
+        "UPSTREAM.sha256",
+        "README.zig.md",
+        "NOTICE.md",
+        "CHANGELOG.md",
+        "FORK-NOTES.md",
+        // The fork's ignore rules travel with the package so a fetched copy
+        // keeps upstream's conventions and gains nothing by accident. The CI
+        // definitions under `.github/` and `.appveyor.yml` are deliberately
+        // absent: they build this repository, they are not package content, and
+        // no sibling package in this workspace lists them.
+        ".gitignore",
+    },
+}

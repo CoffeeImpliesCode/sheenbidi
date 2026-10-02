@@ -1,0 +1,25 @@
+.{
+    .name = .sheenbidi_consumer,
+    .version = "0.1.0",
+
+    // The pinned Zig 0.16.0 toolchain rejects any other value for this
+    // package name, so keep it verbatim. It identifies this package only and
+    // must not be copied from another manifest.
+    .fingerprint = 0x0ade7ac2798073d2,
+
+    .minimum_zig_version = "0.16.0",
+
+    .dependencies = .{
+        // A relative path, not a registry or archive URL. This package exists
+        // to prove that `dep.module("sheenbidi")` works from outside the
+        // package that defines it; resolving that through a registry would
+        // make the proof depend on a published state of the world.
+        .sheenbidi = .{ .path = ".." },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
