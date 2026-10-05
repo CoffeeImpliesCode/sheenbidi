@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# devenv.yaml — the only input this SDK's development environment declares.
+#
+# Pinned by commit, not by the floating `rolling` branch name: the revision
+# below is the one already in use across this workspace, so `devenv shell`
+# resolves to the same nixpkgs and the same `zig_0_16` attribute that the
+# sibling projects on this host use.
+#
+# `devenv.lock` is written and owned by the workspace driver.
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/c2f38fe7f9e04d9aadd354d380f2bd40531d9737

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # cross-test.profile.sh — settings only, for the `cross-test` harness.
 #
 # `cross-test` is run from this package root. It compiles and runs this
@@ -18,10 +19,10 @@
 # business and not this package's. Supply it in the environment when a
 # GNU-libc or dynamically linked musl cell needs one.
 #
-# Licence: **none asserted.** This is a fork-authored file, like `build.zig`,
-# `zig/root.zig`, `tests.zig` and `consumer/`. Upstream SheenBidi is
-# Apache-2.0 and that grant is untouched; it does not reach this file, and
-# `NOTICE.md` records the fork's own files as unassigned.
+# Licence: the grant for this fork's own files, this one included, is recorded in
+# `FORK-LICENSE.md` as a direct authorization by the owner of this fork,
+# matching upstream's Apache-2.0 term. Upstream's own grant, in `LICENSE` and
+# `README.upstream.md:169-184`, is untouched and does not reach this file.
 
 # The step that runs the public Zig API tests. This is the harness default too;
 # it is named here so the package's contract is in the package.

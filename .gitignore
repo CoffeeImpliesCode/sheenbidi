@@ -28,7 +28,33 @@ xcuserdata/
 ## Zig build output
 ##
 ## Added by this fork; every rule above is upstream's and is kept verbatim.
+## SPDX-License-Identifier: Apache-2.0 — the grant for this fork's own files is
+## recorded in FORK-LICENSE.md, not here; upstream's Apache-2.0 grant in LICENSE
+## is untouched and reaches neither this section nor any other fork file.
 /.zig-cache/
 /zig-out/
 /consumer/.zig-cache/
 /consumer/zig-out/
+#
+# Zig 0.16 materialises a fetched dependency into a project-local directory.
+# This package declares no dependencies, so these exist so that a future one -
+# or a fetch a user runs by hand - cannot commit a materialised tree. The
+# observed fetch for this package materialises `zig-pkg/<hash>` beside the build
+# root it was run from, which is why both roots are named.
+/zig-pkg/
+/consumer/zig-pkg/
+#
+# Nix and devenv state. `direnv allow` writes `.direnv/` into this working copy,
+# which sits on an NFS volume, so the entries below exist to keep a shell
+# session from dirtying the tree. `.envrc` is deliberately NOT ignored: it is
+# listed in build.zig.zon `.paths`, because a fetched copy whose own shell
+# cannot be entered is not a whole package, and the same goes for a local
+# override, which is machine state and not package content.
+# `flake.lock` and `devenv.lock` are the workspace driver's to write and are
+# likewise not ignored here.
+/.devenv/
+/.devenv.flake.nix
+/devenv.local.nix
+/.direnv/
+/result
+/result-*

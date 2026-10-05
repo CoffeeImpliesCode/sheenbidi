@@ -1,13 +1,31 @@
 # NOTICE
 
+This file is the `NOTICE` that Apache-2.0 §4(d) asks for, the per-file licence
+inventory for this tree, and the record of what this fork changed. It has three
+parts, because this tree has three different sets of terms:
+
+| What | Terms |
+|---|---|
+| SheenBidi itself — `Headers/`, `Source/`, `Tools/Generator`, `Tools/Parser`, `Tests/`, upstream's two build systems, upstream's README | `Apache-2.0`, upstream's grant, text shipped verbatim as `LICENSE` |
+| The eleven Unicode, Inc. data files in `Tools/Unicode/` | the terms their own headers name; **not** Apache-2.0, and not relicensed here |
+| The files this fork authored | `Apache-2.0` under a **direct owner authorization** recorded in [`FORK-LICENSE.md`](FORK-LICENSE.md) |
+
 ## Upstream work
 
 SheenBidi is the work of Muhammad Tayyab Akram. The copyright notice upstream's
-own README carries with the licence grant reads, at `README.md:171`:
+own README carries with the licence grant reads, at `README.upstream.md:171`:
 
 ```
 Copyright (C) 2014-2026 Muhammad Tayyab Akram
 ```
+
+That README is upstream's, preserved byte for byte as `README.upstream.md` — it
+was this package's `README.md` until this fork gave the name `README.md` to its
+own documentation. The driver's extraction receipt records
+`sha256 34376a693954902b6b587d29d008d07e8ac29e4e553e8319d2f1d5ab7e3ae1c8` for
+`README.upstream.md`, which is the same digest the integrity record carried for
+`README.md` before the move. Nothing about the bytes changed; only the name they
+are reached by, and every citation in this package's documents moved with them.
 
 The same notice, with upstream's own year range, heads 90 of the 98 files under
 `Headers/` and `Source/`; it varies slightly between files
@@ -34,16 +52,19 @@ fork builds tag `v3.0.0`, commit
 
 ## The grants, and which applies where
 
-**The SheenBidi library is `Apache-2.0`.** The grant is in `README.md:169-184`
-and the text is `LICENSE`, shipped verbatim, not edited, shortened or restated
-here. Everything under `Headers/`, `Source/`, `Tools/Generator`, `Tools/Parser`
-and `Tests/` is covered by it, as are upstream's two build systems and
-`README.md`.
+### The SheenBidi library is `Apache-2.0`
 
-**The eleven files in `Tools/Unicode/` are not.** They are Unicode, Inc. data
-files, under the terms their own headers name. Ten of the eleven carry those
-terms in their own first lines; `UnicodeData.txt` is the exception and begins
-directly with data rows. Verbatim, from `Tools/Unicode/BidiCharacterTest.txt:3-5`:
+The grant is upstream's, at `README.upstream.md:169-184`, and the text is
+`LICENSE`, shipped verbatim, not edited, shortened or restated here. Everything
+under `Headers/`, `Source/`, `Tools/Generator`, `Tools/Parser` and `Tests/` is
+covered by it, as are upstream's two build systems and `README.upstream.md`.
+
+### The eleven files in `Tools/Unicode/` are not
+
+They are Unicode, Inc. data files, under the terms their own headers name. Ten
+of the eleven carry those terms in their own first lines; `UnicodeData.txt` is
+the exception and begins directly with data rows. Verbatim, from
+`Tools/Unicode/BidiCharacterTest.txt:3-5`:
 
 ```
 # © 2025 Unicode®, Inc.
@@ -64,18 +85,37 @@ that same revision. This fork:
 * does not relicense them, does not modify them and does not strip the notice
   they carry;
 * ships them unmodified, so a recipient has the terms in the same file the data
-  is in.
+  is in — and installs them, unmodified, next to the library, so a recipient of
+  the **built** package has them too (see
+  [What the installed closure carries](#what-the-installed-closure-carries)).
 
 The workspace source record
 `local://foundation-expansion-sources.json` records the licence of this import
 as "Apache-2.0 plus Unicode data terms". That is exactly the split above: the
 second term covers `Tools/Unicode/` and nothing else.
 
-**This fork's own files** — the Zig build, facade, translation root,
-conformance parsers, tests, example, consumer, the `cross-test` harness profile
-and documentation — carry no stated licence. Their status is **unassigned**. The
-earlier Apache-2.0 offer was unsupported and is withdrawn; no grant may be
-inferred from the upstream licence texts.
+### This fork's own files are `Apache-2.0` under an owner authorization
+
+Earlier versions of this file, and of `README.zig.md`, recorded the fork-authored
+files as carrying **no stated licence**, and `CHANGELOG.md` entries 14, 17 and 18
+withdrew an earlier Apache-2.0 offer that no one had made. That was accurate
+about the state at the time: no owner had authorized a term.
+
+The owner has since authorized a per-project licence for the fork-authored
+additions, matching the project's primary upstream terms where appropriate. For
+this project the primary upstream term is Apache-2.0, so that is what the fork
+additions are licensed under:
+
+> **SPDX identifier: `Apache-2.0`.** The files this fork authored are licensed
+> under the Apache License, Version 2.0, whose full text ships verbatim as
+> `LICENSE`. Each newly authored or rewritten source and build file carries
+> `SPDX-License-Identifier: Apache-2.0` in its own header.
+
+The authorization, its date, the reason this project matches its upstream term,
+and what the grant deliberately does not cover are in
+[`FORK-LICENSE.md`](FORK-LICENSE.md). Two things are deliberately absent from it:
+this package does not invent a copyright identity, and it does not attribute the
+fork's additions to Muhammad Tayyab Akram or to any other upstream contributor.
 
 This repository is a private downstream. That removes no obligation: the
 copyright notice, the licence text, the Unicode files with their own terms, and
@@ -86,9 +126,9 @@ this file travel with the source and with any binary or archive built from it.
 `LICENSE` §4 requires a copy of the licence (shipped), a statement of the changes
 (the "What this fork changed" section below, which is the notice §4(b) asks
 for), retention of upstream's notices (§4(c), satisfied because no upstream file
-is edited), and, where the work carries a `NOTICE` file, that downstream copies
-include the attribution above (§4(d), this file). Upstream ships no `NOTICE`
-file; this one is the fork's.
+is edited except the recorded `.gitignore` append), and, where the work carries a
+`NOTICE` file, that downstream copies include the attribution above (§4(d), this
+file). Upstream ships no `NOTICE` file; this one is the fork's.
 
 ### Patent grant
 
@@ -109,7 +149,9 @@ This fork has added no code to the bidirectional algorithm, to the UCD tables or
 to any of the reference-counted objects. The Unicode data files are published by
 the Unicode Consortium under their own terms, which this fork neither modifies
 nor re-licenses, so the risk this fork introduces is only the risk of a
-redistribution of upstream's and Unicode's work.
+redistribution of upstream's and Unicode's work. The fork's own build, facade,
+runtime loader and test code are covered by the same §3 grant with the same
+termination, per `FORK-LICENSE.md`.
 
 ## What this fork changed
 
@@ -120,32 +162,113 @@ fixtures the test root embeds; `sha256sum -c UPSTREAM.sha256` is the check. It
 covers the sources the build compiles, the headers it installs, the fixtures the
 tests replay and the licence text alike. That check has been run against this
 tree and is green: exit 0, 218 records, every line `<path>: OK`
-(`…-sheenbidi-immutable-source-integrity-120.log`).
+(`…-sheenbidi-immutable-source-integrity-120.log`). That run predates the
+`README.md` → `README.upstream.md` move described below; the record was updated
+to follow the rename, and the check has not been run since, which is a
+`PENDING-VERIFICATION` item and not a claim.
 
 One upstream file is edited, and only by appending:
 
 | File | Change |
 |---|---|
-| `.gitignore` | upstream's 27 lines are kept verbatim. The appended `## Zig build output` section excludes `/.zig-cache/`, `/zig-out/`, `/consumer/.zig-cache/` and `/consumer/zig-out/`. This append is recorded here; the file is deliberately absent from `UPSTREAM.sha256` because it is not byte-identical to upstream |
+| `.gitignore` | upstream's 27 lines are kept verbatim and contiguous at the top. Everything below them is the fork's append: `## Zig build output` (`/.zig-cache/`, `/zig-out/`, `/consumer/.zig-cache/`, `/consumer/zig-out/`, `/zig-pkg/`, `/consumer/zig-pkg/`), a Nix and devenv section (`/.devenv/`, `/.devenv.flake.nix`, `/devenv.local.nix`, `/.direnv/`, `/result`, `/result-*`) and the `SPDX-License-Identifier: Apache-2.0` line. `.envrc`, `flake.lock` and `devenv.lock` are deliberately **not** ignored: `.envrc` ships in `build.zig.zon` `.paths`, `flake.lock` ships there too, and the two lock files are the workspace driver's — `flake.lock` is present in this working copy and pins the commit `flake.nix` names, `devenv.lock` is not present, and no file of this package writes either. This append is recorded here; the file stays absent from `UPSTREAM.sha256` because it is not byte-identical to upstream |
+
+**One upstream file moved, and no upstream bytes changed.** Upstream's README was
+this package's `README.md`. It is preserved verbatim as `README.upstream.md`,
+and `README.md` is now this fork's own document. The integrity record's
+`README.md` line became a `README.upstream.md` line with the digest unchanged
+(`34376a69…ae1c8`), and the record's count is still 218. Every line-number
+citation of upstream's README in this package — the grant at
+`README.upstream.md:169-184`, the copyright at `:171`, the object model at
+`:45-69`, the dependency statement at `:71-72` — now names the preserved file,
+with identical line numbers, because the bytes are identical.
 
 Everything else this fork adds is new, in new files:
 
 | File | What it is |
 |---|---|
-| `build.zig` | Zig 0.16 build: compiles upstream's `Source/SheenBidi.c` unity unit in-tree with `-std=c90 -DSB_CONFIG_UNITY`, installs `libSheenBidi.a` and the public headers, and defines `test`, `smoke` and `check` |
-| `build.zig.zon` | package manifest; declares no dependencies, and its `.paths` are what a dependent receives |
+| `build.zig` | Zig 0.16 build: compiles upstream's `Source/SheenBidi.c` unity unit in-tree with `-std=c90 -DSB_CONFIG_UNITY`, installs the library and the public headers, and defines `test`, `smoke` and `check` |
+| `build.zig.zon` | package manifest; declares no dependencies, and its `.paths` are what a dependent receives. `flake.lock` is listed among them, so a fetched copy carries the pin its `flake.nix` declares; `devenv.lock` is not listed because no such file exists in this tree |
 | `cross-test.profile.sh` | fork-authored harness configuration, not documentation and not a build input: ordinary Bash variable definitions that `cross-test` sources when it runs this package's `test` step over the published 53-platform matrix. It defines no hooks, no matrix and no host path, and nothing in `build.zig` reads it. Listed in `.paths` so a fetched copy carries it |
+| `package.nix` | one uncurried source-only Nix derivation returning one result, called from both `flake.nix` and `devenv.nix` with `linkage` selecting a static or shared artifact. No sibling import, no host path, no build-time download, no C flag; install-only phases, caches inside the sandbox `TMPDIR`, and one `zig build` with one optimize selection, `-Dcpu=baseline`, `-Dlinkage=<variant>` and `--prefix "$out"` |
+| `flake.nix` | `packages.<system>.static`, `.shared` and `.default` (which is `static`). No dev shell: `devenv` is the canonical development environment |
+| `devenv.nix`, `devenv.yaml`, `.envrc` | the canonical development environment: the Zig 0.16.0 compiler and pkg-config as tools, namespaced `sheenbidi:*` tasks that run this package's own build, and lazy `outputs.static` / `outputs.shared` over the same `package.nix`. The shell builds nothing when it opens and adds no state path of its own |
 | `zig/translate.h` | the single header `addTranslateC` translates: `#include <SheenBidi/SheenBidi.h>` and nothing else, with no macro defined and no declaration added |
 | `zig/root.zig` | the Zig facade: the borrow contract as a type, bounds checks before the C, one honest error per NULL, and a visual-order view of a line — plus `pub const c` for the whole raw translated surface |
 | `zig/conformance/level.zig` | the resolved-level and visual-index list syntax the two UAX #9 fixtures share |
 | `zig/conformance/character_test.zig` | parser for `BidiCharacterTest.txt` |
 | `zig/conformance/bidi_test.zig` | parser for `BidiTest.txt`, including the `@Levels` / `@Reorder` blocks and the direction bitset |
 | `zig/conformance/bidi_class.zig` | the `Bidi_Class` names, the verified representative code points, and the `DerivedBidiClass.txt` table that checks them |
-| `tests.zig` | 19 behavioural tests: two full-file UAX #9 conformance replays, one representative check, and sixteen boundary cases |
+| `tests.zig` | 22 behavioural tests: two full-file UAX #9 conformance replays, one representative check, and nineteen boundary cases |
 | `smoke.zig` | the deterministic example behind `zig build smoke`, on `BidiCharacterTest.txt` row 44 |
 | `consumer/build.zig`, `consumer/build.zig.zon`, `consumer/src/main.zig` | a separate package that depends on this one by relative path and runs it, on `BidiCharacterTest.txt` row 45 |
-| `.github/workflows/verify.yml` | this fork's own verification workflow: native, cross and consumer jobs. The `native` job runs `sha256sum -c UPSTREAM.sha256`, then `zig build`, then compiles and runs a C program against the installed headers and the installed archive with no Zig code in between, then `zig build test` and `zig build smoke`. Upstream's `linux.yml`, `macos.yml`, `windows.yml`, `.appveyor.yml` and `FUNDING.yml` are left exactly as they arrived and are not retargeted at this fork's infrastructure |
-| `UPSTREAM.md`, `UPSTREAM.sha256`, `NOTICE.md`, `README.zig.md`, `CHANGELOG.md`, `FORK-NOTES.md` | provenance, integrity record and fork documentation |
+| `.github/workflows/verify.yml` | this fork's own verification workflow: `native` (the linkage matrix, `sha256sum -c UPSTREAM.sha256`, the installed-C-surface program, `test` and `smoke`), `delivery` (linkage × the four optimize modes, asserting the installed closure), `runtime` (the four `-Dlinkage` × `-Druntime` cells, each running the three `bin/misuse` observations), `cross` and `consumer`. Upstream's `linux.yml`, `macos.yml`, `windows.yml`, `.appveyor.yml` and `FUNDING.yml` are left exactly as they arrived and are not retargeted at this fork's infrastructure. **No CI run of this package has been executed here** |
+| `UPSTREAM.md`, `UPSTREAM.sha256`, `NOTICE.md`, `FORK-LICENSE.md`, `README.md`, `README.upstream.md`, `README.zig.md`, `CHANGELOG.md`, `FORK-NOTES.md` | provenance, integrity record, licence records and fork documentation |
+
+One row above is a category rather than a path, and is listed as one on purpose:
+the runtime route is fork-authored too and carries the same `Apache-2.0` SPDX
+identifier. `runtime/library.zig` (what a provider must be and what the ABI
+requires), `runtime/graph.zig` (which wires the loader into this build) and
+`runtime/misuse.zig` (the observation a test binary cannot make of itself) are
+in this package; the loader state machine and platform layer they name —
+`runtime/loader.zig`, `runtime/generate.zig`, `runtime/sync.c` and
+`runtime/sync.h` — are the same fork-authored core every SDK in this workspace
+shares, bound here under the `sheenbidi_rt` prefix. None of it is upstream work
+under any reading.
+
+## What the installed closure carries
+
+`zig build install --prefix <dir>` and the Nix derivation in `package.nix` write
+the same document set, so a prefix install and a Nix closure can be audited the
+same way:
+
+**Observed for a prefix install on 2026-10-04; not yet observed for a Nix
+output.** Sixteen gates ran `zig build test smoke install` across both linkages
+and all four optimize modes, exit 0, each receipted under
+`…/contract-physics-lua/current-native-evidence/`. Their step summaries name the
+library, `libSheenBidi.pc` and every document and Unicode file below, and two of
+those prefixes are still readable on disk — `sheenbidi-static` and
+`sheenbidi-shared`, whose `lib/pkgconfig` holds `SheenBidi.pc` and nothing else.
+No Nix output has been built or inspected, so the derivation's half of the
+statement above is still `PENDING-VERIFICATION`, and so is the installed C
+consumer run against the new closure.
+
+```
+<dir>/lib/libSheenBidi.{a,so}          the library artifact (see below)
+<dir>/include/SheenBidi/*.h             all 23 public headers, unedited
+<dir>/lib/pkgconfig/SheenBidi.pc       pkg-config metadata, from build.zig
+<dir>/share/doc/sheenbidi/LICENSE       Apache-2.0, upstream's text, verbatim
+<dir>/share/doc/sheenbidi/NOTICE.md     this file
+<dir>/share/doc/sheenbidi/FORK-LICENSE.md
+<dir>/share/doc/sheenbidi/README.md     this fork's README
+<dir>/share/doc/sheenbidi/README.upstream.md   upstream's README, verbatim
+<dir>/share/doc/sheenbidi/README.zig.md the Zig interface documentation
+<dir>/share/doc/sheenbidi/UPSTREAM.md   provenance of the import
+<dir>/share/doc/sheenbidi/UPSTREAM.sha256       the 218-record integrity list
+<dir>/share/doc/sheenbidi/CHANGELOG.md
+<dir>/share/doc/sheenbidi/FORK-NOTES.md
+<dir>/share/doc/sheenbidi/unicode/*.txt         the eleven Unicode data files
+```
+
+`build.zig` is the only writer of that closure: `zig build install` and the Nix
+derivation both produce it, from the same graph, and the derivation adds no file
+of its own and copies nothing a second time. That includes
+`lib/pkgconfig/SheenBidi.pc`, whose base name is the library name the graph links
+(`SheenBidi`, capitalised) so that `-lSheenBidi` and the file that describes it
+spell the package identically. `build.zig` writes it from upstream's own
+`sheenbidi.pc.in` with `prefix` as `${pcfiledir}/../..` — relative to the file
+pkg-config found — so a fixed Nix `$out` needs no substitution of its own. An
+earlier version of the derivation did write a second, lower-case
+`lib/pkgconfig/sheenbidi.pc` from the same template; both carried
+`Name: SheenBidi`, and they disagreed on `Cflags:`, which the graph sets to
+`-DSB_CONFIG_DLL_IMPORT` for a dynamic build and the derivation left empty. That
+block was removed rather than reconciled: one library described by two files
+means `pkg-config` answers according to the spelling it was asked for.
+
+Two things are deliberately absent from the library itself: the four generated
+UCD tables are compiled into it, so there is no runtime data directory to
+install; and upstream's `Tools/` generator and parser are build-time tooling that
+this package's build never runs, so nothing from them is installed as a tool.
 
 ## Cryptographic suitability
 

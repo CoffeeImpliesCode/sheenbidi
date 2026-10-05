@@ -19,11 +19,11 @@ Where each of those comes from, read out of the carried tree:
   (`SHEENBIDI_VERSION_MAJOR 3`, `MINOR 0`, `PATCH 0`, `STRING "3.0.0"`), and
   that string is what `SBVersionGetString()` returns at run time. It is the
   version of the C library, not a version of the Zig wrapper, and it is what
-  `build.zig.zon` carries in `.version`. `build.zig:291-296` parses that field
+  `build.zig.zon` carries in `.version`. `build.zig:563-568` parses that field
   and `@panic`s if it stops matching the pin above, so a version bump is a
   decision someone has to make rather than a side effect of a merge.
 * The licence is `LICENSE`, the Apache License 2.0 in full, and it is restated
-  in `README.md:169-184`. The same grant heads 90 of the 98 files under
+  in `README.upstream.md:169-184`. The same grant heads 90 of the 98 files under
   `Headers/` and `Source/`; the year range in those per-file headers is
   upstream's own and varies between files (`Source/SheenBidi.c:2` says
   2014-2026, `Headers/SheenBidi/SheenBidi.h:2` says 2014-2025,
@@ -34,12 +34,12 @@ Where each of those comes from, read out of the carried tree:
   anyway, because it covers the package rather than the file, and a per-file
   attribution audit needs them named as the exception — see [`NOTICE.md`](NOTICE.md).
 * The copyright line "Copyright (C) 2014-2026 Muhammad Tayyab Akram" is
-  `README.md:171`.
-* Upstream describes the object model the facade wraps in `README.md:45-69`:
+  `README.upstream.md:171`.
+* Upstream describes the object model the facade wraps in `README.upstream.md:45-69`:
   `SBCodepointSequence`, `SBAlgorithm` (P1, P2-P3), `SBParagraph` (X1-I2),
   `SBLine` (L1-L2), `SBRun`, `SBMirrorLocator` (L4) and `SBScriptLocator`
   (UAX #24).
-* The dependency statement in `README.md:71-72` is that SheenBidi needs only
+* The dependency statement in `README.upstream.md:71-72` is that SheenBidi needs only
   `stddef.h`, `stdint.h`, `stdlib.h` and `string.h` from the C library. That is
   why every module in this package is built with `link_libc = true` and why
   there is no other dependency anywhere in the graph.
@@ -84,8 +84,11 @@ A Zig package that compiles upstream's own C library from `Source/` in this
 repository and publishes a Zig facade over the translated
 `Headers/SheenBidi/SheenBidi.h`. Nothing of the bidirectional algorithm is
 reimplemented, re-derived or reconfigured: no table is regenerated, no upstream
-source is patched, and nothing is downloaded at build time. `NOTICE.md` lists
-every file this fork adds or edits.
+source is patched, and nothing is downloaded at build time. The same source tree
+is also packaged for Nix and for devenv by the fork's own `package.nix`,
+`flake.nix`, `devenv.nix`, `devenv.yaml` and `.envrc`, which build the same
+`Source/` with the same Zig build graph and add no C decision of their own.
+`NOTICE.md` lists every file this fork adds or edits.
 
 ### What is compiled, and with which switches
 
@@ -182,7 +185,7 @@ Everything named in `build.zig.zon` `.paths` that this fork did not write:
 | `Tests/` | upstream's own C++ test suite, kept whole. This build does not compile it; it is kept so a re-sync has something to diff against |
 | `CMakeLists.txt`, `Makefile`, `meson.build`, `meson_options.txt`, `SheenBidi.cmake.in`, `sheenbidi.pc.in` | upstream's two build systems and their templates, kept for the same reason |
 | `LICENSE` | the Apache License 2.0 text, verbatim |
-| `README.md` | upstream's project README, which carries the licence grant (`README.md:169-184`) |
+| `README.upstream.md` | upstream's project README, byte for byte, which carries the licence grant (`README.upstream.md:169-184`). It was this package's `README.md` until the fork gave that name to its own README; the bytes and the digest are unchanged |
 
 `.gitignore` is upstream's file too, and it is in `.paths`, but the fork appends
 to it; see [`NOTICE.md`](NOTICE.md) and `FORK-NOTES.md` §1.
@@ -253,8 +256,18 @@ no warning. Receipt
 `local://foundation-expansion-sheenbidi-immutable-source-integrity-120.log`; the
 gate is the first row of the matrix in
 [`README.zig.md`](README.zig.md#verification-status). The same check runs in CI
-at `.github/workflows/verify.yml:57-58`, unconditionally, as the `native` job's
+at `.github/workflows/verify.yml:83-84`, unconditionally, as the `native` job's
 "Immutable source and Unicode fixture integrity" step, ahead of `zig build`.
+
+**Then the record followed a rename.** This fork's `README.md` is now its own
+document and upstream's README is preserved verbatim as `README.upstream.md`, so
+the record's `README.md` line became a `README.upstream.md` line with the digest
+unchanged (`34376a69…ae1c8`) and the count still 218. The driver's extraction
+receipt `local://foundation-contract-upstream-readme-proof.json` records that same
+digest for `README.upstream.md`, which is what makes the rename a rename and not
+a re-hash. **Status after the rename: `PENDING-VERIFICATION`.** The check has not
+been run since the record was updated, and no result is claimed for it here; the
+driver re-runs it and moves that status beside its own receipt.
 
 ## Synchronising with a new upstream release
 
@@ -262,9 +275,9 @@ at `.github/workflows/verify.yml:57-58`, unconditionally, as the `native` job's
    `Headers/SheenBidi/SBVersion.h`'s `SHEENBIDI_VERSION_STRING`; that string,
    not the tag spelling, is the version.
 2. Replace the upstream files in place: `Headers/`, `Source/`, `Tools/`,
-   `Tests/`, the six build files, `LICENSE` and `README.md`. Do not hand-patch
+   `Tests/`, the six build files, `LICENSE` and `README.upstream.md`. Do not hand-patch
    upstream source to make a build problem go away.
-3. Re-read the licence grant in the new `README.md` and the notice in each data
+3. Re-read the licence grant in the new `README.upstream.md` and the notice in each data
    file, and re-read `CMakeLists.txt` and `meson_options.txt` for the default
    configuration the build quotes in its own comments.
 4. Regenerate `UPSTREAM.sha256` over the same path set with the same method and
@@ -280,6 +293,10 @@ at `.github/workflows/verify.yml:57-58`, unconditionally, as the `native` job's
 
 * [`NOTICE.md`](NOTICE.md) — attribution, the licence split, every file this
   fork adds or edits, and the Apache-2.0 obligations that apply.
+* [`FORK-LICENSE.md`](FORK-LICENSE.md) — the owner authorization and the actual
+  grant for the files this fork authored, and what that grant excludes.
+* [`README.md`](README.md) — this fork's own README: source and build deviations,
+  the matrix with its statuses, the runtime ABI, and how to consume the SDK.
 * [`README.zig.md`](README.zig.md) — how to build, import and call the package,
   and where the authoritative gate matrix lives; every gate this file reports a
   status for is described there rather than repeated here.

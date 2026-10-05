@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+//
 //! Behaviour tests for the `sheenbidi` package.
 //!
 //! The centrepiece is conformance. `BidiCharacterTest.txt` and `BidiTest.txt`
@@ -29,6 +31,54 @@ const sheenbidi = @import("sheenbidi");
 const bidi_class = @import("zig/conformance/bidi_class.zig");
 const bidi_test = @import("zig/conformance/bidi_test.zig");
 const character_test = @import("zig/conformance/character_test.zig");
+
+/// A shared object exporting the fifty-one entry points of the stable
+/// SheenBidi surface, named by the environment in a runtime-loading build.
+const provider_variable = "SHEENBIDI_PROVIDER";
+
+/// Make the native library usable, once, before a test calls the facade.
+///
+/// In a linked build the facade is usable already and this is a no-op at
+/// comptime. In a runtime-loading build every call into the module goes through
+/// a table that `load` fills, so this is where the one explicit load happens.
+/// It is safe to call from every test: the contract makes the same request
+/// idempotent, and the loader keeps the handle to the end of the process.
+///
+/// A build that was not told which file to load stops here with the variable's
+/// name, rather than reporting a test failure that says nothing about the
+/// reason. A suite that quietly stopped testing because a variable was unset
+/// would report success for nothing, and one that failed anonymously would send
+/// the next person looking in the loader instead of at the command line.
+fn nativeReady() void {
+    if (comptime !sheenbidi.runtime_loaded) return;
+    if (sheenbidi.loadedSource() != null) return;
+
+    var buffer: [4096]u8 = undefined;
+    const value = std.testing.environ.getAlloc(std.testing.allocator, provider_variable) catch
+        missingProvider();
+    defer std.testing.allocator.free(value);
+    if (value.len == 0 or value.len > buffer.len) missingProvider();
+    @memcpy(buffer[0..value.len], value);
+    sheenbidi.load(.{ .path = buffer[0..value.len] }) catch |err| {
+        std.debug.print(
+            "tests.zig: loading " ++ provider_variable ++ " = \"{s}\" failed: {t}\n",
+            .{ buffer[0..value.len], err },
+        );
+        @panic("tests.zig: the provider named by " ++ provider_variable ++
+            " did not load; nothing below this line ran");
+    };
+}
+
+fn missingProvider() noreturn {
+    @panic(
+        "tests.zig: this is a runtime-loading build and " ++ provider_variable ++
+            " is not set. Point it at a shared object exporting the fifty-one " ++
+            "entry points of the stable SheenBidi surface, for example the one " ++
+            "`zig build -Dlinkage=dynamic` installs, and export it for the whole " ++
+            "`zig build` invocation: the build cannot inject a path into a run " ++
+            "step's environment.",
+    );
+}
 
 const bidi_character_test_bytes = @embedFile("Tools/Unicode/BidiCharacterTest.txt");
 const bidi_test_bytes = @embedFile("Tools/Unicode/BidiTest.txt");
@@ -195,6 +245,7 @@ fn checkBidiTestRow(allocator: std.mem.Allocator, row: bidi_test.Row) TestError!
 }
 
 test "conformance: every row of BidiCharacterTest.txt" {
+    nativeReady();
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -213,6 +264,7 @@ test "conformance: every row of BidiCharacterTest.txt" {
 }
 
 test "conformance: every row and direction of BidiTest.txt" {
+    nativeReady();
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -312,6 +364,7 @@ fn leveled(value: u8) character_test.ResolvedLevel {
 }
 
 test "fixture row 44: Hebrew inside paired brackets, left-to-right paragraph" {
+    nativeReady();
     // BidiCharacterTest.txt line 44, the worked example from UAX #9:
     //   <HEBREW ALEF> <HEBREW BET> ( <HEBREW GIMEL> <HEBREW DALET> [ & e f ] . ) g h
     try expectQuotedRow(
@@ -325,6 +378,7 @@ test "fixture row 44: Hebrew inside paired brackets, left-to-right paragraph" {
 }
 
 test "fixture row 45: the same brackets under a right-to-left paragraph" {
+    nativeReady();
     // BidiCharacterTest.txt line 45. Same text as row 44 with direction 1, and
     // the Latin letters inside the bracket pair move to level 2.
     try expectQuotedRow(
@@ -338,6 +392,7 @@ test "fixture row 45: the same brackets under a right-to-left paragraph" {
 }
 
 test "fixture row 256: rule L1 resets a segment separator in the line only" {
+    nativeReady();
     // BidiCharacterTest.txt line 256:
     //   <ARABIC-INDIC DIGIT ONE> <TAB> ( <ARABIC-INDIC DIGIT TWO> )
     //
@@ -389,6 +444,7 @@ test "fixture row 256: rule L1 resets a segment separator in the line only" {
 }
 
 test "paragraph boundary: rule P1 and a CRLF pair" {
+    nativeReady();
     // UAX #9 P1: "split text into paragraphs ... at each paragraph separator",
     // and a CRLF pair is one separator, not two. The rule is also stated in
     // Headers/SheenBidi/SBAlgorithm.h:52.
@@ -436,6 +492,7 @@ test "paragraph boundary: rule P1 and a CRLF pair" {
 }
 
 test "line rule L1 clause 4: a trailing whitespace run is reset" {
+    nativeReady();
     // UAX #9 L1: "On each line, reset the embedding level of the following
     // characters to the paragraph embedding level: ... 4. Any sequence of
     // whitespace characters ... at the end of the line."
@@ -474,6 +531,7 @@ test "line rule L1 clause 4: a trailing whitespace run is reset" {
 }
 
 test "one text, three encodings: code unit counts differ, levels do not" {
+    nativeReady();
     // "a" + GRINNING FACE + HEBREW ALEF. UTF-8 spends four code units on the
     // emoji, UTF-16 spends two, UTF-32 spends one, and every SheenBidi offset
     // counts code units — so the same text has three different index spaces.
@@ -526,6 +584,7 @@ test "one text, three encodings: code unit counts differ, levels do not" {
 }
 
 test "out-of-range and empty requests are rejected before the C sees them" {
+    nativeReady();
     const text = "ab";
     const source = sheenbidi.Source.fromUtf8(text);
     const max = std.math.maxInt(sheenbidi.CodeUnitIndex);
@@ -562,6 +621,7 @@ test "out-of-range and empty requests are rejected before the C sees them" {
 }
 
 test "base level: automatic, explicit, and the SBLevelMax boundary" {
+    nativeReady();
     const rtl_text = [_]u32{0x05D0};
     const neutral_text = [_]u32{0x0030};
 
@@ -627,6 +687,7 @@ test "base level: automatic, explicit, and the SBLevelMax boundary" {
 }
 
 test "bidi types cover every code unit and partition into the four families" {
+    nativeReady();
     // One entry per code unit, not per code point: a code point that occupies
     // several code units contributes its type once and BN for the rest
     // (Source/API/SBCodepointSequence.c, SBCodepointSequenceDetermineBidiTypes).
@@ -697,6 +758,7 @@ test "bidi types cover every code unit and partition into the four families" {
 }
 
 test "codepoint lookup: bidi type, general category, script and mirror" {
+    nativeReady();
     try std.testing.expectEqual(sheenbidi.bidi_type_l, sheenbidi.codepointBidiType(0x0061));
     try std.testing.expectEqual(sheenbidi.bidi_type_r, sheenbidi.codepointBidiType(0x05D0));
     try std.testing.expectEqual(sheenbidi.bidi_type_al, sheenbidi.codepointBidiType(0x0627));
@@ -740,6 +802,7 @@ test "codepoint lookup: bidi type, general category, script and mirror" {
 }
 
 test "codepoint decoding walks the source in every encoding and reports out-of-range indices" {
+    nativeReady();
     // LATIN SMALL LETTER A, GRINNING FACE, HEBREW LETTER ALEF. The three code
     // points are the same in each encoding; only the index space changes, so
     // the same walk is asserted against all three encodings with the code unit
@@ -798,6 +861,7 @@ test "codepoint decoding walks the source in every encoding and reports out-of-r
 }
 
 test "mirror locator: only odd-level runs mirror, and it holds the line" {
+    nativeReady();
     // The bracketed Arabic-Indic digits of BidiCharacterTest.txt line 256.
     // The Arabic-Indic digits sit at level 2 and are not considered; the two
     // brackets sit at level 1 and each reports the other.
@@ -846,6 +910,7 @@ test "mirror locator: only odd-level runs mirror, and it holds the line" {
 }
 
 test "mirror locator keeps its line alive after the handle is released" {
+    nativeReady();
     // SBMirrorLocatorLoadLine retains the line (Source/API/SBMirrorLocator.c:57),
     // so the line object survives the caller releasing its own reference. The
     // source buffer belongs to the caller and is still alive here, which is the
@@ -876,6 +941,7 @@ test "mirror locator keeps its line alive after the handle is released" {
 }
 
 test "script locator: runs of one script over a mixed string" {
+    nativeReady();
     // Three Latin letters and a space, then two Hebrew letters. The space is
     // Common, and a Common code point joins the run it sits in, so the first
     // run is four code units long rather than three.
@@ -908,6 +974,7 @@ test "script locator: runs of one script over a mixed string" {
 }
 
 test "a paragraph outlives its algorithm and retain keeps the object alive" {
+    nativeReady();
     const text = "car means \u{05D0}\u{05D1}\u{05D2}.";
     const source = sheenbidi.Source.fromUtf8(text);
 
@@ -964,6 +1031,7 @@ test "a paragraph outlives its algorithm and retain keeps the object alive" {
 }
 
 test "retain returns a second reference to the same object" {
+    nativeReady();
     // HEBREW ALEF, LEFT PARENTHESIS, LATIN SMALL LETTER A. The bracket sits in
     // the right-to-left run, so the mirror locator reaches it; the Latin
     // letter is raised to level 2 by rule I2.
@@ -1009,4 +1077,221 @@ test "retain returns a second reference to the same object" {
     kept_line.deinit();
     kept_paragraph.deinit();
     kept_algorithm.deinit();
+}
+
+test "an allocator without a required member is refused, and a complete one takes every block" {
+    nativeReady();
+
+    // `SBAllocatorCreate` copies the protocol by value and never looks at it
+    // (`Source/API/SBAllocator.c:283-295`), and `allocateBlock` and
+    // `deallocateBlock` are then called unconditionally (`:217`, `:235`). The
+    // facade refuses each omission before the library is entered, so the refusal
+    // allocates nothing — which `std.testing`'s own oracle would report at the
+    // end of this test if it had.
+    try std.testing.expectError(
+        sheenbidi.Error.MissingProtocolFunction,
+        sheenbidi.Allocator.create(.{ .deallocateBlock = ledgerFree }, null),
+    );
+    try std.testing.expectError(
+        sheenbidi.Error.MissingProtocolFunction,
+        sheenbidi.Allocator.create(.{ .allocateBlock = ledgerBlock }, null),
+    );
+
+    var ledger: Ledger = .{ .backing = std.testing.allocator };
+    var allocator = try sheenbidi.Allocator.create(.{
+        .allocateBlock = ledgerBlock,
+        .deallocateBlock = ledgerFree,
+    }, &ledger);
+    defer allocator.deinit();
+
+    const previous = sheenbidi.c.SBAllocatorGetDefault();
+    sheenbidi.c.SBAllocatorSetDefault(allocator.ref);
+    // Registered after `deinit`, so it runs first: the default has to be back to
+    // what it was before the allocator's own last release, or the object is
+    // freed through a default that is no longer there.
+    defer sheenbidi.c.SBAllocatorSetDefault(previous);
+
+    {
+        const units = [_]u32{ 0x0061, 0x05D0 };
+        var algorithm = try sheenbidi.Algorithm.create(sheenbidi.Source.fromUtf32(&units));
+        algorithm.deinit();
+    }
+
+    // The object above exists only because of this allocator, so a scope that
+    // allocated nothing or gave something back is a scope that did not run.
+    try std.testing.expect(ledger.taken > 0);
+    try std.testing.expectEqual(ledger.taken, ledger.returned);
+    try std.testing.expectEqual(@as(usize, 0), ledger.live());
+}
+
+test "the direct decoders walk both encodings and refuse the indices upstream refuses" {
+    nativeReady();
+
+    // One text, two index spaces: GRINNING FACE is four code units in UTF-8 and
+    // two in UTF-16, and HEBREW LETTER ALEF is two and one.
+    const utf8_units = "a\u{1F600}\u{05D0}";
+    const utf16_units = [_]u16{ 0x0061, 0xD83D, 0xDE00, 0x05D0 };
+
+    const utf8_steps = [_]struct {
+        at: sheenbidi.CodeUnitIndex,
+        codepoint: sheenbidi.Codepoint,
+    }{
+        .{ .at = 0, .codepoint = 0x0061 },
+        .{ .at = 1, .codepoint = 0x1F600 },
+        .{ .at = 5, .codepoint = 0x05D0 },
+    };
+    var index: sheenbidi.CodeUnitIndex = 0;
+    for (utf8_steps) |step| {
+        const decoded = sheenbidi.codepointDecodeNextFromUtf8(utf8_units, index);
+        try std.testing.expectEqual(step.at, index);
+        try std.testing.expectEqual(step.codepoint, decoded.codepoint);
+        index = decoded.next;
+    }
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, utf8_units.len), index);
+
+    const utf16_steps = [_]struct {
+        at: sheenbidi.CodeUnitIndex,
+        codepoint: sheenbidi.Codepoint,
+    }{
+        .{ .at = 0, .codepoint = 0x0061 },
+        .{ .at = 1, .codepoint = 0x1F600 },
+        .{ .at = 3, .codepoint = 0x05D0 },
+    };
+    var index16: sheenbidi.CodeUnitIndex = 0;
+    for (utf16_steps) |step| {
+        const decoded = sheenbidi.codepointDecodeNextFromUtf16(&utf16_units, index16);
+        try std.testing.expectEqual(step.at, index16);
+        try std.testing.expectEqual(step.codepoint, decoded.codepoint);
+        index16 = decoded.next;
+    }
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, utf16_units.len), index16);
+
+    // The same code points read backwards. Each answer starts where the forward
+    // walk says that code point begins, which is what makes the two directions
+    // consistent rather than merely symmetric.
+    const back8 = sheenbidi.codepointDecodePreviousFromUtf8(utf8_units, utf8_units.len);
+    try std.testing.expectEqual(@as(sheenbidi.Codepoint, 0x05D0), back8.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 5), back8.start);
+    const back16 = sheenbidi.codepointDecodePreviousFromUtf16(&utf16_units, utf16_units.len);
+    try std.testing.expectEqual(@as(sheenbidi.Codepoint, 0x05D0), back16.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 3), back16.start);
+
+    // A lead byte with no continuation behind it is a faulty code point, not an
+    // error, and the walk stops where the sequence stopped rather than at the
+    // end of the buffer: `Source/API/SBCodepoint.c:257-269` breaks out of the
+    // loop at the first byte outside the continuation range.
+    const broken_utf8 = [_]u8{ 0xE2, 0x28 };
+    const broken = sheenbidi.codepointDecodeNextFromUtf8(&broken_utf8, 0);
+    try std.testing.expectEqual(sheenbidi.codepoint_faulty, broken.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 1), broken.next);
+
+    // A lone surrogate in UTF-16 has no pair to join and reports faulty for a
+    // related reason: `Source/API/SBCodepoint.c:324-335` leaves the answer at its
+    // initial `SBCodepointFaulty` when no trail unit follows the lead.
+    const lone_high = [_]u16{0xD83D};
+    const high = sheenbidi.codepointDecodeNextFromUtf16(&lone_high, 0);
+    try std.testing.expectEqual(sheenbidi.codepoint_faulty, high.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 1), high.next);
+    const lone_low = [_]u16{0xDE00};
+    const low = sheenbidi.codepointDecodeNextFromUtf16(&lone_low, 0);
+    try std.testing.expectEqual(sheenbidi.codepoint_faulty, low.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 1), low.next);
+
+    // Out of range is the invalid sentinel with the index left alone. For the
+    // backwards walk index zero is out of range too, because upstream reaches
+    // that by a wrapping unsigned subtraction (`Source/API/SBCodepoint.c:283`).
+    const past_end = sheenbidi.codepointDecodeNextFromUtf8(utf8_units, utf8_units.len);
+    try std.testing.expectEqual(sheenbidi.codepoint_invalid, past_end.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, utf8_units.len), past_end.next);
+    const at_zero = sheenbidi.codepointDecodePreviousFromUtf8(utf8_units, 0);
+    try std.testing.expectEqual(sheenbidi.codepoint_invalid, at_zero.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, 0), at_zero.start);
+    const past_end16 = sheenbidi.codepointDecodePreviousFromUtf16(&utf16_units, utf16_units.len + 1);
+    try std.testing.expectEqual(sheenbidi.codepoint_invalid, past_end16.codepoint);
+    try std.testing.expectEqual(@as(sheenbidi.CodeUnitIndex, utf16_units.len + 1), past_end16.start);
+}
+
+test "OpenType and Unicode script tags are two mappings, not one" {
+    nativeReady();
+
+    // Both are read out of `Source/API/SBBase.c`: `Hebr` at `:581` and `hebr`
+    // at `:213`, `Latn` at `:621` and `latn` at `:251`.
+    try std.testing.expectEqual(@as(u32, 0x48656272), sheenbidi.scriptUnicodeTag(script_hebr));
+    try std.testing.expectEqual(@as(u32, 0x68656272), sheenbidi.scriptOpenTypeTag(script_hebr));
+    try std.testing.expectEqual(@as(u32, 0x4C61746E), sheenbidi.scriptUnicodeTag(script_latn));
+    try std.testing.expectEqual(@as(u32, 0x6C61746E), sheenbidi.scriptOpenTypeTag(script_latn));
+
+    // The two differ on what "no script" means, which is the difference a font
+    // selector has to know about: the OpenType table answers `DFLT` for every
+    // script it does not name (`Source/API/SBBase.c:467-468`) and the Unicode
+    // table answers `0` (`:825-826`). `SBScriptNil` is named by neither, and is
+    // already bound above as `script_nil`.
+    try std.testing.expectEqual(@as(u32, 0x44464C54), sheenbidi.scriptOpenTypeTag(script_nil));
+    try std.testing.expectEqual(@as(u32, 0), sheenbidi.scriptUnicodeTag(script_nil));
+
+    // And the tag a run carries is the one its code points resolve to, so the
+    // two are usable together: HEBREW LETTER ALEF is `Hebr`, and the OpenType
+    // tag for that script is the `hebr` a font file is filed under.
+    try std.testing.expectEqual(script_hebr, sheenbidi.codepointScript(0x05D0));
+    try std.testing.expectEqual(script_latn, sheenbidi.codepointScript(0x0061));
+}
+
+/// How many blocks the test allocator below tracks at once.
+const max_blocks = 32;
+
+/// The bookkeeping the two callbacks keep.
+///
+/// The blocks come from `std.testing.allocator`, so a block this test's own
+/// code forgot to give back is a leak the framework reports by name. Each
+/// block's size is recorded because `std.mem.Allocator` frees by slice and the
+/// release callback is handed only a pointer.
+const Ledger = struct {
+    backing: std.mem.Allocator,
+    taken: usize = 0,
+    returned: usize = 0,
+    blocks: [max_blocks]struct { address: usize, bytes: usize } =
+        @splat(.{ .address = 0, .bytes = 0 }),
+
+    fn live(self: *const Ledger) usize {
+        var count: usize = 0;
+        for (self.blocks) |slot| {
+            if (slot.bytes != 0) count += 1;
+        }
+        return count;
+    }
+};
+
+/// `SBAllocatorAllocateBlockFunc`, `Headers/SheenBidi/SBAllocator.h:36`.
+///
+/// Aligned for a pointer, because an object header holds an atomic reference
+/// count and a finalize function pointer. A table with no free slot answers
+/// null, which is the failure the header defines and which SheenBidi reports as
+/// an allocation failure.
+fn ledgerBlock(size: sheenbidi.CodeUnitIndex, info: ?*anyopaque) callconv(.c) ?*anyopaque {
+    const ledger: *Ledger = @ptrCast(@alignCast(info orelse return null));
+    if (size == 0) return null;
+    for (&ledger.blocks) |*slot| {
+        if (slot.bytes != 0) continue;
+        const block = ledger.backing.alignedAlloc(u8, .fromByteUnits(@alignOf(usize)), size) catch
+            return null;
+        slot.* = .{ .address = @intFromPtr(block.ptr), .bytes = block.len };
+        ledger.taken += 1;
+        return block.ptr;
+    }
+    return null;
+}
+
+/// `SBAllocatorDeallocateBlockFunc`, `Headers/SheenBidi/SBAllocator.h:60`.
+fn ledgerFree(pointer: ?*anyopaque, info: ?*anyopaque) callconv(.c) void {
+    const ledger: *Ledger = @ptrCast(@alignCast(info orelse return));
+    const address = @intFromPtr(pointer);
+    for (&ledger.blocks) |*slot| {
+        if (slot.bytes == 0 or slot.address != address) continue;
+        const block: [*]align(@alignOf(usize)) u8 = @ptrFromInt(slot.address);
+        const size: usize = @intCast(slot.bytes);
+        slot.* = .{ .address = 0, .bytes = 0 };
+        ledger.returned += 1;
+        ledger.backing.free(block[0..size]);
+        return;
+    }
 }

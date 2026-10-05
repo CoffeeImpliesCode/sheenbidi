@@ -8,8 +8,12 @@
 # Tools/ tree (upstream's UCD 17.0.0 inputs, parser and table generator,
 # and the two UAX #9 conformance fixtures the test root embeds), the whole
 # Tests/ tree, upstream's two build systems with their two `.in` templates, the
-# Apache-2.0 text and upstream's README. It is a subset of the upstream tree,
-# not a copy of it.
+# Apache-2.0 text and upstream's README, which this fork preserves verbatim as
+# `README.upstream.md` (it was `README.md` before this fork gave that name to
+# its own README; the bytes and the digest are unchanged, and the driver's
+# extraction receipt `local://foundation-contract-upstream-readme-proof.json`
+# records sha256 34376a69… for `README.upstream.md`). It is a subset of the
+# upstream tree, not a copy of it.
 #
 # Deliberately absent, each for a stated reason:
 #   build.zig, build.zig.zon, zig/, tests.zig, smoke.zig, consumer/ and
@@ -53,7 +57,7 @@ b5e3749a305a0502c94bfa2e54142434ff50e8ee1c1874fd3e6b3521e7cf2bfe  Headers/SheenB
 44a644a72edf2300838d32c3e32aa14a7cb66b584fb9da643b8311aa21991cbe  Headers/SheenBidi/SheenBidi.h
 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  LICENSE
 5454d4f5560bb2bf80122df651221b37cd9127ee13ce212b2ea155918f64411b  Makefile
-34376a693954902b6b587d29d008d07e8ac29e4e553e8319d2f1d5ab7e3ae1c8  README.md
+34376a693954902b6b587d29d008d07e8ac29e4e553e8319d2f1d5ab7e3ae1c8  README.upstream.md
 92a4c10343a7d19b5484e76f8fe2f2a4e70f9188b5969604bfdc17cbbc655374  SheenBidi.cmake.in
 1c92ab90d2e4ab56be4ddaea65b7ff731e49b1d533f8f9955e2b77355b9833e6  Source/API/SBAlgorithm.c
 9655de8ccb0ddaef4867e62f7827e7c4c1ce33b072d5dc6ad484d96aef00a8df  Source/API/SBAlgorithm.h

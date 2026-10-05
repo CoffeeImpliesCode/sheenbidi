@@ -27,7 +27,8 @@ here, so a status in this file cannot drift away from the run behind it.
 `build.zig.zon` `.paths`: the whole `Headers/` (23 files), `Source/` (75),
 `Tools/` (60) and `Tests/` (52) trees, plus the eight root files
 `CMakeLists.txt`, `Makefile`, `meson.build`, `meson_options.txt`,
-`SheenBidi.cmake.in`, `sheenbidi.pc.in`, `LICENSE` and `README.md`. **218
+`SheenBidi.cmake.in`, `sheenbidi.pc.in`, `LICENSE` and `README.upstream.md`
+— upstream's README, which this fork preserves under that name. **218
 records**, one `<hex>  <path>` line each, in `sha256sum` format.
 
 *Why `.paths` and not "the upstream tree".* A record naming files the package
@@ -150,6 +151,17 @@ the archive and headers *this* build installed a moment earlier, so no system
 library, no `pkg-config` lookup and no release-mismatch question is involved
 anywhere in it. What is gated is the bundled install path; what is not is this
 mode.
+
+**Host guard.** The switch names a library installed on *this* machine, so
+`-fsys=sheenbidi` and a foreign `-Dtarget` are refused together rather than
+bound to each other. `std.Target.Query.isNative()` cannot decide that — it is
+false for every named target — so the graph resolves the host explicitly and
+compares its architecture, operating system and ABI with the requested target's
+(`build.zig:762-770`, `:1069-1073`). This is the applied side of
+[`CHANGELOG.md`](CHANGELOG.md) entry 34; it is **not yet re-gated**, and no gate
+here has looked at it. It changes what the mode *refuses*, not what it
+*compiles* when it is used correctly on this machine, which remains ungated as
+the paragraph above records.
 
 ### 5. An out-of-range request is an error here, where upstream clamps it
 
@@ -472,6 +484,37 @@ without re-deriving it.
   does. A `build_only` cell is compile evidence and must be recorded as such,
   never as a pass.
 
+### L11 — A doc comment that contradicts the note above it will be believed, and a caller will reject a correct call
+
+* **Condition.** A wrapper whose sibling functions share one block note
+  describing an edge case, and whose own per-function comment restates that edge
+  case slightly differently.
+* **Symptom.** Two statements about one parameter, both plausible, neither
+  flagged: the shared note said index `0` or past the length is
+  `codepoint_invalid` with the index unchanged, while the two previous-decoders'
+  own comments said `index` must be greater than `0`. Nothing failed — the tests
+  passed index `0` and asserted `codepoint_invalid`, exactly as upstream
+  behaves — so the contradiction survived every gate in the repository. The cost
+  is on the reader: someone trusting the per-function comment rejects a call that
+  is in fact correct, or adds a guard the type does not need.
+* **Fix.** Delete the restatement. The per-function comment points at the shared
+  note and adds only what is specific to it. Do not "fix" behaviour toward the
+  comment — upstream is the tiebreak, and here `Source/API/SBCodepoint.c:283`
+  and `:345` guard on `(*index - 1) < length`, which at index `0` wraps unsigned,
+  fails the guard, and returns `SBCodepointInvalid` with `*index` untouched;
+  `Headers/SheenBidi/SBCodepoint.h:145` and `:177` have said so all along. Two
+  comment lines changed, no code line. Add no new test when the existing tests
+  already assert the case — they did here, in `smoke.zig:244-247` and
+  `tests.zig:1206-1211`, which is precisely why the prose was the only thing
+  wrong and nothing went red.
+* **Targets bound.** Any wrapper in this workspace whose functions share a
+  block note and also carry per-function comments. The generalisable check is
+  cheap and worth running whenever a comment is added above a declaration that
+  already has one nearby: read the two together and ask whether a single call
+  could satisfy both. Contradictions of this kind are invisible to a compiler
+  and to a green suite, so they are found by reading, not by testing — and the
+  failing case is never a red gate, it is a caller who does the wrong thing.
+
 ---
 
 ## Gate status
@@ -553,3 +596,338 @@ freeze so that the copy it produces contains the final text.
    manifest is `SOURCE-CONFIRMED` only, and the identity of that new package
    must be read from its own fetch receipt rather than carried over from
    `sheenbidi-3.0.0-PIPqq_cnPAHHpPnjFuv7nc5-dgtiNxsmOpfmw-Q-ZnsO`.
+
+## The 2026-10-04 contract migration
+
+Everything below was decided for this migration. The gate matrix above is
+evidence about the package as it stood on 2026-10-03; this section is the set of
+changes that evidence no longer covers. Entries are numbered `M1`–`M8` so they
+cannot be confused with the decisions and lessons above, which stay where they
+are.
+
+**Partly gated since.** Sixteen gates ran on 2026-10-04 between 15:09 and 15:20
+UTC — `zig build test smoke install` across both linkages and all four optimize
+modes, eight of them with `-Druntime=true` — all exit 0, receipted under
+`…/contract-physics-lua/current-native-evidence/`. They cover M4's delivery half
+and the runtime load path; they observed `lib/pkgconfig/SheenBidi.pc` and only
+that file in `lib/pkgconfig`, which is M4's corrected ownership claim. They do
+**not** cover the derivations, `bin/misuse`, `zig fetch`, the six-target check,
+the 53-platform matrix, or the run-step `has_side_effects` change, which landed
+after them. Each decision below keeps its own status line, and none of them was
+moved by a document edit.
+
+### M1. Upstream's README is preserved under its own name
+
+**Condition.** The fork needed a `README.md` of its own — deviations, matrix,
+consumption — in a canonical order, and upstream's README carried the licence
+grant, the copyright line and the object-model description that this
+documentation cites by line number.
+
+**Decision.** Upstream's README is preserved byte for byte as
+`README.upstream.md`, and `README.md` is the fork's. `UPSTREAM.sha256`'s record
+line changed name and not digest, the count stays 218, and every line citation
+moved with the bytes — `README.upstream.md:169-184` is the grant, `:171` the
+copyright, `:45-69` the object model, `:71-72` the dependency statement.
+
+**Why the digest is trustworthy.** The driver's extraction receipt
+`local://foundation-contract-upstream-readme-proof.json` records
+`34376a69…ae1c8` for `README.upstream.md`, which is the digest the record
+carried for `README.md`. That is what makes this a rename and not a re-hash.
+
+**Cost.** Every citation in the package that named upstream's README by line
+had to move, and a `git diff` against the pinned commit must now name
+`README.upstream.md`: comparing the fork's own `README.md` with upstream's
+commit is a different question and would report a false difference.
+
+**Status.** `PENDING-VERIFICATION`. The record was updated; `sha256sum -c` has
+not been re-run since.
+
+### M2. The fork's own files got a licence, by owner authorization
+
+**Condition.** Entries 14, 17 and 18 had withdrawn an Apache-2.0 offer nobody
+had made and recorded the fork's files as unassigned, because upstream's grant
+does not reach additions this fork made.
+
+**Decision.** The owner authorized a per-project licence for the fork's
+additions. This project's is `Apache-2.0`, matching upstream's primary term, with
+no copyright line invented and nothing attributed to upstream authors. The
+authorization and the grant are in `FORK-LICENSE.md`; `NOTICE.md` carries the
+three-way split.
+
+**Why Apache-2.0 and not something newer or older.** The tree is overwhelmingly
+upstream's, upstream's term is Apache-2.0, and one licence for one distribution
+is worth more than variety. It also brings the obligations this fork already
+discharges: a `NOTICE` file, a statement of changes, and the patent-grant
+termination clause.
+
+**What it does not do.** It does not reach upstream's work, and it does not reach
+the eleven Unicode data files, which stay under the terms their own headers name.
+
+**Cost.** Files authored before the grant carry no header until they are next
+rewritten; the SPDX line is one comment line per file and the grant lives in one
+document rather than in six headers.
+
+**Status.** `SOURCE-CONFIRMED` as a licence fact. Nothing was gated.
+
+### M3. The install closure carries the licence material, not only the artifact
+
+**Condition.** A prefix install and a Nix output could previously ship a binary
+with its licence three directories away, and the Unicode terms reached only
+whoever had the source tree.
+
+**Decision.** `zig build install` and the Nix derivation install the same
+document set under `share/doc/sheenbidi/`: `LICENSE`, `NOTICE.md`,
+`FORK-LICENSE.md`, both READMEs, `README.zig.md`, `UPSTREAM.md`,
+`UPSTREAM.sha256`, `CHANGELOG.md`, `FORK-NOTES.md`, and the eleven Unicode data
+files unmodified under `share/doc/sheenbidi/unicode/`.
+
+**Why the Unicode files ship in the output at all.** They are separately
+licensed material whose terms are named inside the files, and a recipient of the
+built package must receive those terms with the data. Upstream does not install
+them; that is upstream's build, and this fork's obligation is not upstream's.
+
+**Why one rule for both paths.** A prefix install and a Nix closure are audited
+the same way, and a second, divergent install path would eventually produce two
+different claims about what a recipient has.
+
+**Status.** `PENDING-VERIFICATION`. Nothing has inspected an install since.
+
+### M4. One source-only Nix derivation, two variants, no sibling import
+
+**Condition.** The package had no Nix packaging at all, and a sibling-workspace
+import or a host path would make a "portable" package that only builds on this
+machine.
+
+**Decision.** `package.nix` is one uncurried derivation returning **one** result,
+with `linkage` as its only variant parameter; the variants exist at the two entry
+points, not inside it. `flake.nix` exposes `static`, `shared` and `default`, and
+`devenv.nix` exposes the same two as lazy `outputs`. `default` is `static`
+because that is this SDK's existing policy. The derivation imports nothing from
+a sibling workspace, names no host account, store path or absolute mount,
+downloads nothing, adds no C flag, filters version control and build state out of
+the source it hands the build, and is install-only: one `zig build` with one
+optimize selection, `-Dcpu=baseline`, `-Dlinkage=<variant>` and `--prefix "$out"`,
+with both Zig caches inside the sandbox `TMPDIR`.
+
+**Why `build.zig` stays the only writer.** It installs the library, the headers,
+the licence and provenance documents, the Unicode data and the pkg-config
+metadata. An earlier version of this derivation re-installed that same set in
+`postInstall`; that was removed, because two writers for one path means two
+places to be wrong. The derivation then still added one file of its own,
+`lib/pkgconfig/sheenbidi.pc`, and that is gone too.
+
+**Why that last file was deleted rather than reconciled.**
+
+* **Condition.** A Nix derivation whose `build.zig` already generates a `.pc` from
+  an upstream template, where the derivation also adds a `.pc` of its own.
+* **Symptom.** One library described by two files, disagreeing silently. Here
+  `build.zig`'s `addPkgConfig` had been writing and installing
+  `lib/pkgconfig/SheenBidi.pc` all along (`build.zig:944`, `:977`) while the
+  derivation's `sed` wrote `lib/pkgconfig/sheenbidi.pc` beside it — base names
+  differing only in case, both carrying `Name: SheenBidi` and
+  `Libs: -lSheenBidi`. `pkg-config` answered according to the spelling it was
+  asked for, and the two disagreed on the only field that depends on the variant:
+  the graph appends ` -DSB_CONFIG_DLL_IMPORT` to `Cflags:` for a dynamic build
+  (`build.zig:972`), where the derivation substituted
+  `@SHEENBIDI_PKGCONFIG_CFLAGS@` with nothing, so `nix build .#shared` described
+  a shared library without the decoration its headers require on `_WIN32`.
+  Nothing failed. Every document that described the delivery repeated the
+  opposite claim — that the graph generates no `.pc` and the derivation adds the
+  only one — which is what kept it invisible: the docs agreed with each other and
+  disagreed with the build graph.
+* **Fix.** Delete the derivation's writer; keep the graph's. It needed no prefix
+  fixing because the graph writes `prefix` as `${pcfiledir}/../..`, relative to
+  the file pkg-config found, so a fixed `$out` is a prefix like any other to it.
+  Keep the installed base name equal to `library_name`, so `-lSheenBidi` and the
+  file describing it spell the package identically.
+* **Targets bound.** Any Nix-packaged SDK in this workspace whose `build.zig`
+  already writes a `.pc` from an upstream template. The rule is narrower than
+  "delete `postInstall`": a derivation may legitimately add a file the graph
+  cannot produce, but it must not add one the graph already writes under a
+  different spelling, and where two writers share a path the variant-dependent
+  fields (`Cflags:` above all) must agree — otherwise the conflict is a silent
+  wrong answer rather than a build failure. A same-field `.pc` disagreement is
+  invisible to every other check in the repository, because an archive with
+  unusable metadata still compiles, installs and links.
+
+**Why `dontInstall` is not set.** It would disable the Zig setup hook's real
+install phase. `dontBuild` and `dontConfigure` are set instead, so exactly one
+phase runs.
+
+**Why pkg-config metadata is generated from upstream's template, and by whom.**
+Upstream already ships `sheenbidi.pc.in`, so the file's field set and library
+spelling are upstream's rather than a second description this fork invented —
+but `build.zig` is what writes it, not the derivation. Upstream substitutes
+CMake's configure-time absolute `@CMAKE_INSTALL_PREFIX@`; this graph never fixes
+a prefix, and writes `prefix` as `${pcfiledir}/../..` relative to the file
+pkg-config found, so the installed metadata is correct wherever `--prefix` put
+it and a Nix `$out` needs no substitution of its own. That is what removed the
+derivation's reason to exist alongside the graph's.
+
+**Why no `devShells` in the flake.** The development environment is devenv, and
+a flake dev shell would be a second, unexercised one.
+
+**Status.** Partly observed. A **prefix install** was observed on 2026-10-04:
+the sixteen `zig build test smoke install` gates name `install generated to
+pkgconfig/SheenBidi.pc` in their step summaries, and the `sheenbidi-static` and
+`sheenbidi-shared` prefixes are readable on disk with `lib/pkgconfig/SheenBidi.pc`
+and nothing else beside it — the capitalised name `build.zig:944`/`:977` write,
+with the per-variant `Cflags:` difference the removed derivation's file got
+wrong. So the corrected ownership claim above is observed on the `zig build
+install` route. The **Nix** route remains `PENDING-VERIFICATION`: neither
+derivation has been built or inspected, so what an `$out` carries is still a
+source-confirmed prediction, not a result.
+
+### M5. devenv is canonical; where its state goes is the caller's
+
+**Condition.** This repository sits on an NFS volume. A devenv shell that keeps
+its state in `.devenv/` and its Zig caches beside it puts build state on a
+network filesystem, which the workspace's storage policy forbids — and entering
+a shell must not compile the SDK.
+
+**Decision.** `devenv.nix` holds tools only (Zig 0.16.0, pkg-config), exposes this
+package's own build as namespaced `sheenbidi:*` tasks, and exposes the same
+`package.nix` the flake uses as lazy `outputs.static` and `outputs.shared`.
+`devenv build outputs.static` is therefore a real build from inside the shell,
+not an echoing task.
+
+**Where the state goes is the caller's, not the file's.** `devenv` puts runtime
+sockets under `/tmp` and keeps state under its own home unless `TMPDIR`,
+`DEVENV_HOME`, `XDG_RUNTIME_DIR` and the Zig caches are supplied, so the driver
+supplies them on approved scratch and verifies where state actually landed. An
+earlier version of this file redirected those variables from `HOST_SCRATCH_ROOT`
+and refused to evaluate without it; both were removed. A committed file cannot
+move state that was created before the shell was entered, and requiring this
+site's helper variable would make the package unusable for a caller who brings
+its own scratch. What `devenv.nix` can honestly promise is only that it adds no
+path of its own and erases none of the caller's.
+
+**Cost.** `.gitignore` grew entries for `/.devenv/`, `/.devenv.flake.nix`,
+`/devenv.local.nix` and `/.direnv/`, so `direnv allow` cannot dirty this NFS
+working copy; `.envrc` and the two lock files are deliberately not ignored.
+
+**Current state of the two lock files.** A `flake.lock` is present in this
+working copy, pins `nixpkgs` to the same commit `flake.nix` names, and **ships in
+`build.zig.zon` `.paths`** (`build.zig.zon:102`), on the same ground as `.envrc`:
+a copy carrying the flake without its lock would declare a pin and ship none. No
+`devenv.lock` exists in this tree and none is listed — no file is invented to fill
+the slot. The ownership rule this file records still holds: no file of this
+package writes either one; the workspace driver does.
+
+**Why the derivation still filters both out.** Two different axes, and the
+distinction matters when reading a derivation's source filter. `flake.lock` is
+package content — it ships — and is dropped from `src` only because `zig build`
+never reads it. That makes it the build's input rather than the package's
+contents, and by the time the derivation runs the Nix flake frontend has already
+resolved the locked inputs. Excluding a lock there is not a defect, and this
+entry previously recorded it as one by calling it machine state; that was wrong
+once the lock became package content, and the reasoning above replaces it.
+
+**Status.** `PENDING-VERIFICATION`. No shell has been entered under a gate.
+
+### M6. Static means a static library, and the documents say so
+
+**Condition.** "Static" in a package description invites the reading "a wholly
+static executable". SheenBidi allocates through `malloc`/`free` and copies
+through `memcpy`/`memmove`, so that reading is false in every configuration.
+
+**Decision.** Every document that mentions the static variant says what it is —
+a static library artifact — and says why the stronger reading cannot hold. The
+Nix derivation asserts its `linkage` value and its Zig version rather than
+accepting any string.
+
+**Cost.** None worth naming; this is a sentence that has to be written once and
+kept true.
+
+### M7. The DLL macros are keyed to the artifact kind, not to the target
+
+**Condition.** `SB_PUBLIC` is `__declspec(dllexport)`/`__declspec(dllimport)`
+only under `_WIN32` and only when `SB_CONFIG_DLL_EXPORT`/`SB_CONFIG_DLL_IMPORT`
+is defined (`Headers/SheenBidi/SBBase.h:30-42`); upstream's CMake defines them
+for a DLL build (`CMakeLists.txt:123-127`). A shared build that omitted them on
+Windows would link as an empty shell.
+
+**Decision.** `-Dlinkage=dynamic` defines `SB_CONFIG_DLL_EXPORT` on the C compile
+line and `SB_CONFIG_DLL_IMPORT` on the translation line, in bundled and
+`-fsys=sheenbidi` mode alike, with no target test because the macros are inert
+off `_WIN32`. In system mode the macro follows `system_linkage`, and
+`preferred_link_mode` follows the same value, so the header decoration and the
+linker cannot describe two different libraries. Under the default `static`
+neither is defined and a consumer needs no define.
+
+**Status.** `SOURCE-CONFIRMED` for the rule; `PENDING-VERIFICATION` for the
+build, including the Windows shared artifact itself, which has not been built.
+
+### M8. A canonical task names its own directory; the working directory is not it
+
+**Condition.** A devenv task entered with `--from path:<this SDK>`, so devenv
+generates the wrapper with the *project* directory as its working directory.
+`DEVENV_ROOT` names that project, and `devenv tasks run` does not run
+`enterShell` — the same run shows `devenv:enterShell` executing for
+devenv shell` and absent from `devenv tasks run`. Two inherited locations are in
+play here and neither inherited one is this checkout: the working directory and
+`DEVENV_ROOT` are the same project directory in that run, and this SDK is a
+third path entirely.
+
+**Symptom.** Two 2026-10-04 acceptance gates failed on the directory rather than
+on the build: `line 3: cd: consumer: No such file or directory` and
+`sha256sum: UPSTREAM.sha256: No such file or directory` (receipts
+`…-sheenbidi-devenv-consumer.log`, `…-sheenbidi-devenv-integrity.log`). The file
+parsed, `devenv info` listed all seven names, and the failure came out of the
+generated `/nix/store/…-sheenbidi-consumer` wrapper itself.
+
+**Fix.** One binding — `./.`, rendered by `builtins.toString` and quoted by
+`pkgs.lib.escapeShellArg` — becomes the first line of every exec, with a
+second binding for `consumer/`. `integrity` and `consumer` are the two that
+fail loudly without it; `build`, `test`, `smoke`, `check` and `install` would
+fail the same way from the same cause and were not run that day. A per-task
+`cwd` option would not have covered the whole surface: the same run recorded
+the same `/nix/store/…-<name>: line N:` wrapper prefix on other SDKs'
+script-form entries, so the body has to move, not the option.
+
+**Boundary.** devenv 2.4.1, `--from path:<SDK>`, `devenv tasks run`, any SDK
+whose task or script bodies use relative paths. Unbound to this package: no
+build graph, test, fixture or facade line changed, and the Unicode data and the
+Bidi API are untouched — the whole edit is inside `devenv.nix` and the documents
+that describe it.
+
+**A prefix is a delivery output, so it follows the cache.** `sheenbidi:build`
+runs the default step, and that step *is* the install step — `build.zig:979`
+attaches `SheenBidi.pc` to `b.getInstallStep()`, and the library, the headers
+and the licence records are attached there too — so it wrote `zig-out/` into
+this checkout, and `sheenbidi:install` wrote under `$TMPDIR` with a `/tmp`
+fallback this workspace's storage policy does not accept. Both now take an
+explicit `--prefix` beneath the exported `ZIG_LOCAL_CACHE_DIR`, else
+`$XDG_CACHE_HOME`, else `$TMPDIR`, and with none of the three they name the
+variable to set and exit non-zero.
+
+`test`, `smoke`, `check` and `consumer` were left without a `--prefix` on
+purpose: their steps depend on test, run and compile steps only
+(`build.zig:1232`, `:1203`, `consumer/build.zig:79`) and never on the install
+step, so they produce no delivery output and a prefix on them would be
+decoration. A caller's own `--prefix`, arriving in `"$@"`, still overrides both
+defaults, exactly as it did before.
+
+### What this migration moved under the documentation
+
+Line citations into files another role rewrote were repointed in the documents
+that describe current state — `build.zig:211` → `build.zig:441`,
+`build.zig:329-340` → `build.zig:631-648`, `build.zig:291-296` →
+`build.zig:563-568`, `.github/workflows/verify.yml:57-58` → `:83-84`. The
+**earlier** entries that cite those numbers are left alone on purpose: they
+describe the file as it stood when they were written, and `CHANGELOG.md` entries
+20 and later record the move rather than rewriting history silently.
+
+### Gates this migration added, none of them run
+
+The list is in [`README.zig.md`](README.zig.md#verification-status) under
+"Pending verification for this migration", because that table is the driver's.
+Nothing in this section is a result, and no receipt exists for any of it.
+
+### One thing this migration did not close
+
+`zig/root.zig` — the facade, owned by the API role — describes the product of a
+`zig build` as `libSheenBidi.a`. With `-Dlinkage=dynamic` the artifact is
+`libSheenBidi.so.3.0.0` plus its two symlinks, so that comment is now
+incomplete. This file's owner does not edit the facade, so the correction is
+recorded here and raised with the driver rather than made from the wrong seat.

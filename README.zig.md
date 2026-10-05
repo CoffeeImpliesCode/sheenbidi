@@ -19,9 +19,15 @@ workspace that grew this package is a version dispatcher; through the dispatcher
 the command is `zig 0.16.0 build`. Plus a C compiler and libc, both of which
 Zig supplies. Nothing is fetched.
 
+The compiler is also available from this package's own development
+environment — `devenv shell`, or `direnv allow` through `.envrc` — which
+supplies Zig 0.16.0 and pkg-config as tools and builds nothing when it opens.
+See [Nix and devenv](#nix-and-devenv).
+
 The core needs the C library headers `stddef.h`, `stdint.h`, `stdlib.h` and
 `string.h` and nothing else, which is upstream's own dependency statement
-(`README.md:71-72`).
+(`README.upstream.md:71-72`; it was `README.md` before this fork gave that name
+to its own README, and the bytes are identical).
 
 ## Commands
 
@@ -35,6 +41,11 @@ The core needs the C library headers `stddef.h`, `stdint.h`, `stdlib.h` and
 | `zig build check -Dtarget=<triple>` | the same check for one target |
 | `cross-test` | compiles **and runs** this package's `test` step over the full published 53-platform Zig 0.16.0 matrix, one `zig build test -Dtarget=…` per target. Settings come from `cross-test.profile.sh`; see [The full 53-platform matrix](#the-full-53-platform-matrix-cross-test) |
 | `zig build -fsys=sheenbidi` | links an installed SheenBidi instead of building one |
+| `zig build -Dlinkage=dynamic` | **added by this migration**, observed 2026-10-04. Selects the artifact: `static` (the default, and this package's policy unchanged) produces `libSheenBidi.a`, `dynamic` produces `libSheenBidi.so`. It selects the *delivery*, never the dispatch: the same C is compiled either way |
+| `zig build -Druntime=true` | **added by this migration**, partly observed 2026-10-04. `c` becomes a generated dispatch and the facade is not linked against `libSheenBidi`; the artifact is still built and installed. Eight such gates exited 0 with `SHEENBIDI_PROVIDER` set to a separately built `libSheenBidi.so`, so the load path itself is exercised; the `bin/misuse` observations are not. `tests.zig` and `smoke.zig` take their provider from `SHEENBIDI_PROVIDER` or `--provider <path>` and stop, naming both, when neither is set — `build.zig` deliberately does not export it, because under `-Dlinkage=static` there is no provider path to name. See [Runtime loading](#runtime-loading-and-the-abi-it-needs) |
+| `devenv shell`, or `direnv allow` | the canonical development environment: Zig 0.16.0 and pkg-config as tools, and namespaced `sheenbidi:*` tasks that run this package's own build. It builds nothing when it opens. See [Nix and devenv](#nix-and-devenv) |
+| `devenv build outputs.static` / `outputs.shared` | the same `package.nix` the flake uses, from inside the shell |
+| `nix build .#static` / `.#shared` / `.#default` | the Nix delivery of this same source tree. `default` is `static`; see [Nix](#nix-and-devenv) |
 | `cd consumer && zig build run` | the same library, consumed by a package that did not write it |
 
 `-Doptimize` selects the mode of the default graph, of the example and of
@@ -87,6 +98,12 @@ wants the C API still gets the headers: installing the archive also puts
 it. The consumer executable needs `link_libc = true` because SheenBidi allocates
 with `malloc` and reads through the buffer it is handed.
 
+`dep.module("sheenbidi")` is the one supported import. The raw C surface is
+reached as `sheenbidi.c` from inside that module, not as a second import: the
+build registers the translated header under the graph name `c`
+(`build.zig:441`) only because `zig/root.zig` binds it by that name, and it
+holds the same declarations either way.
+
 Then:
 
 ```zig
@@ -120,7 +137,12 @@ published conformance rows — see [Examples](#examples).
 Everything the facade exposes is below. The whole stable C surface stays
 reachable through `pub const c`, the translated aggregate header, for anything
 this facade does not name (including upstream's allocator protocol and the raw
-code point decoders).
+code point decoders). `c` is a supported escape hatch and carries upstream's
+own contracts, not this facade's: a raw call that goes past a facade method has
+none of the bounds checks below it. It is reached as `sheenbidi.c`. The build
+also registers the translated header under the graph name `c`
+(`build.zig:441`) because `zig/root.zig` binds it by that name; that is wiring,
+not a second supported import, and it holds the same declarations.
 
 ### Types and free functions
 
@@ -128,9 +150,9 @@ code point decoders).
 |---|---|
 | `Level`, `BidiType`, `Script`, `GeneralCategory`, `Codepoint`, `Run`, `CodeUnitIndex` | the upstream typedefs, unchanged. `CodeUnitIndex` is `SBUInteger`: an unsigned integer as wide as a pointer, and **every index, offset and length in this API is in code units** |
 | `versionString() [:0]const u8` | `SBVersionGetString()` — the version of the linked C, `3.0.0` |
-| `level_invalid` `0xFF`, `level_max` `125`, `level_default_ltr` `0xFE`, `level_default_rtl` `0xFD` | `Headers/SheenBidi/SBBase.h:143-158`. They are `#define`s, so translate-c does not publish them as values and they are transcribed here |
-| `codepoint_invalid` `0xFFFFFFFF`, `codepoint_faulty` `0xFFFD`, `codepoint_max` `0x10FFFF` | `Headers/SheenBidi/SBCodepoint.h:35-49` |
-| `bidi_type_*` (24 constants, `nil` `l` `r` `al` `bn` `nsm` `an` `en` `et` `es` `cs` `ws` `s` `b` `on` `lri` `rli` `fsi` `pdi` `lre` `rle` `lro` `rlo` `pdf`) | the 24 members of the `SBBidiType.h` enum, `SBBidiTypeNil` through `SBBidiTypePDF`, one `pub const` each at `zig/root.zig:198-221`, read out of the translated constants |
+| `level_invalid` `0xFF`, `level_max` `125`, `level_default_ltr` `0xFE`, `level_default_rtl` `0xFD` | `Headers/SheenBidi/SBBase.h:143-158`. Object-like `#define`s arrive as `pub const` through translate-c and are read from the translated module (`zig/root.zig`) |
+| `codepoint_invalid` `0xFFFFFFFF`, `codepoint_faulty` `0xFFFD`, `codepoint_max` `0x10FFFF` | `Headers/SheenBidi/SBCodepoint.h:35-49`, read the same way |
+| `bidi_type_*` (24 constants, `nil` `l` `r` `al` `bn` `nsm` `an` `en` `et` `es` `cs` `ws` `s` `b` `on` `lri` `rli` `fsi` `pdi` `lre` `rle` `lro` `rlo` `pdf`) | the 24 members of the `SBBidiType` enum, `Headers/SheenBidi/SBBidiType.h:28-55`, `SBBidiTypeNil` through `SBBidiTypePDF`, one `pub const` each, read out of the translated constants |
 | `bidiTypeIsStrong` / `IsWeak` / `IsNeutral` / `IsFormat` | the four `SBBidiTypeIs*` families, transcribed from the macros with the same wrapping arithmetic |
 | `generalCategoryIsLetter` / `IsMark` / `IsNumber` / `IsPunctuation` / `IsSymbol` / `IsSeparator` / `IsOther` | the `SBGeneralCategoryIs*` families |
 | `codepointGeneralCategory`, `codepointBidiType`, `codepointMirror`, `codepointScript` | the four `SBCodepointGet*` lookups; `codepointMirror` returns `0` when the code point is not mirrored |
@@ -149,8 +171,8 @@ nothing else, and the taxonomy is cut at what this package actually checked:
 | `EmptySource` | the source has no code units. `SBCodepointSequenceIsValid` requires `stringLength > 0`, so `SBAlgorithmCreate` returns `NULL` |
 | `RangeOutOfBounds` | the requested code-unit range does not fit inside the buffer it names. Upstream would clamp it instead (`SBUIntegerNormalizeRange`) |
 | `EmptyRange` | the range is inside the buffer but covers no code units, which upstream reports as a `NULL` paragraph or line |
-| `InvalidBaseLevel` | an explicit base level above `level_max` |
-| `OutOfMemory` | SheenBidi could not allocate one of its objects |
+| `InvalidBaseLevel` | an explicit base level above `level_max` — `126` and up, which includes all three sentinels |
+| `OutOfMemory` | SheenBidi could not allocate one of its objects. The memory is the C library's own, so a Zig leak oracle sees nothing on either side of it |
 
 ### `Source` and the three encodings
 
@@ -174,29 +196,29 @@ per-code-unit table is exposed.
 | Operation | What it does |
 |---|---|
 | `Algorithm.create(source)` | an algorithm over one borrowed source. `EmptySource` for an empty one |
-| `retain()` / `deinit()` | the upstream reference count. `retain` returns a second handle to the same object |
-| `bidiTypes() []const BidiType` | the bidirectional type of every code unit, a view into the algorithm's own storage, one entry per code unit |
+| `retain()` / `deinit()` | the upstream reference count. `retain` returns a **second handle the caller owns** and owes one `deinit`; a plain `var b = a;` copies the struct and increments nothing, so two `deinit` calls on the two copies release one count twice |
+| `bidiTypes() []const BidiType` | the bidirectional type of every code unit, a view into the algorithm's own storage, one entry per code unit. It borrows the object: valid until every handle to it has been deinitialised |
 | `paragraphBoundary(offset, suggested)` | rule P1: where the first paragraph in `[offset, offset + suggested)` ends, and how many code units its separator occupied (`2` for a CRLF pair, `1` for a lone CR or LF, `0` when the range ran out). A range that fits is accepted even when empty, which reports no paragraph and no separator |
-| `createParagraph(offset, suggested, base)` | the first paragraph in that range. **The paragraph retains the algorithm**, so it stays usable after this handle is deinitialised |
+| `createParagraph(offset, suggested, base)` | the first paragraph in that range. **The paragraph retains the algorithm** (`Source/API/SBParagraph.c:658`), so it stays usable after this handle is deinitialised — that retain covers the algorithm object, not the borrowed code units, which the paragraph goes on reading |
 
 ### `Paragraph`
 
 | Operation | What it does |
 |---|---|
 | `offset()`, `length()` | the paragraph's extent in source code units, separator included |
-| `baseLevel()` | the resolved paragraph embedding level. For an automatic base this is the level P2 and P3 arrived at, not the sentinel that was passed in |
-| `levels() []const Level` | the resolved level of every code unit, in source order, as a view into the paragraph's own storage. Code units rule X9 removes are present and carry the paragraph level, which is what rule L1 does to them |
-| `retain()` / `deinit()` | the upstream reference count |
-| `createLine(line_offset, line_length)` | one line of the paragraph. **The line does not retain the paragraph**: the paragraph must outlive every line made from it |
+| `baseLevel()` | the resolved paragraph embedding level. For an automatic base, and for `.{ .explicit = 125 }`, this is the level P2 and P3 arrived at, not the value that was passed in; for `.{ .explicit = n }` with `n <= 124` it is `n` unchanged |
+| `levels() []const Level` | the resolved level of every code unit, in source order, as a view into the paragraph's own storage, valid until every handle to it has been deinitialised. Code units rule X9 removes are present and carry the paragraph level, which is what rule L1 does to them |
+| `retain()` / `deinit()` | the upstream reference count, with the same second-handle and balanced-release rule as above |
+| `createLine(line_offset, line_length)` | one line of the paragraph, with one reference the caller owns and owes one `deinit`. **The line does not retain the paragraph** (`Source/API/SBLine.c:279`): the paragraph must outlive every line made from it, including a line held alive by a `MirrorLocator` |
 
 ### `Line` and the order of runs
 
 | Operation | What it does |
 |---|---|
 | `offset()`, `length()`, `runCount()` | the line's extent and its number of runs |
-| `runs() []const Run` | the line's runs **in visual order — left to right, the order they are drawn** |
-| `retain()` / `deinit()` | the upstream reference count |
-| `visualOrder(allocator) ![]CodeUnitIndex` | the code units of the line in the order they are drawn, as an explicit permutation of source indices. The caller owns the allocation; it has exactly `line.length()` entries |
+| `runs() []const Run` | the line's runs **in visual order — left to right, the order they are drawn**, as a view into the line's own storage. It borrows the line, so it dies when the last handle to that line is given back — including the one a loaded `MirrorLocator` holds |
+| `retain()` / `deinit()` | the upstream reference count, with the same second-handle and balanced-release rule as above |
+| `visualOrder(allocator) std.mem.Allocator.Error![]CodeUnitIndex` | the code units of the line in the order they are drawn, as an explicit permutation of **absolute source code unit indices**. This is the only allocation the facade makes: it has exactly `line.length()` entries, it comes from `allocator`, and the caller releases it with `allocator.free` on that same allocator. Its whole error channel is `error.OutOfMemory` — the allocation is the only step that can fail, and no partial result is produced when it does |
 
 `Line.runs()` returns runs that upstream has already permuted: `ReorderRuns`
 (`Source/API/SBLine.c:234`) applies rule L2 to the run array as the line is
@@ -211,14 +233,14 @@ is the form a renderer or a test usually wants.
 
 | Operation | `ScriptLocator` | `MirrorLocator` |
 |---|---|---|
-| `create()` | a locator with nothing loaded | a locator with nothing loaded |
-| `load(source)` | loads a source and rewinds. Loading is a borrow: the code units must stay alive and unmodified until the locator is deinitialised or loaded again. An empty source is accepted here, unlike `Algorithm.create` | — |
-| `loadLine(line)` | — | loads a line and rewinds. The buffer is taken from the line itself rather than from a second argument, because upstream silently ignores a load whose buffer is not pointer-identical to the one the line was built from (`Source/API/SBMirrorLocator.c:56`), and an ignored load looks exactly like a line with no mirrors. The locator **retains** the line |
+| `create()` | a locator with nothing loaded, with one reference the caller owns and owes one `deinit` | a locator with nothing loaded, with one reference the caller owns and owes one `deinit` |
+| `load(source)` | loads a source and rewinds. Loading is a borrow: the code units must stay alive and unmodified until the locator is deinitialised or loaded again, and nothing is retained — loading a second source just replaces the sequence the walk reads. An empty source is accepted here, unlike `Algorithm.create` | — |
+| `loadLine(line)` | — | loads a line and rewinds. The buffer is taken from the line itself rather than from a second argument, because upstream silently ignores a load whose buffer is not pointer-identical to the one the line was built from (`Source/API/SBMirrorLocator.c:56`), and an ignored load looks exactly like a line with no mirrors — there is no error for it. The locator **retains** the line (`Source/API/SBMirrorLocator.c:57`), so the line object outlives the handle given here; that reference is given back by the next `loadLine` (`:52`) or by `deinit`, which reaches `FinalizeMirrorLocator` (`:30`) |
 | `moveNext() bool` | advances to the next run, `false` once the source is exhausted. The locator rewinds itself at the end | advances to the next mirror, `false` once the line is exhausted. The locator rewinds itself at the end |
 | `run()` | the current `ScriptRun` — offset, length, script | — |
-| `mirror()` | — | the current `Mirror` — index, code point, mirrored code point. Only runs at an odd level are considered, because a mirror is applied where the character is drawn right to left (`Source/API/SBMirrorLocator.c:78`) |
+| `mirror()` | — | the current `Mirror` — absolute source code unit index, code point, mirrored code point. Only runs at an odd level are considered, because a mirror is applied where the character is drawn right to left (`Source/API/SBMirrorLocator.c:78`) |
 | `reset()` | back to the first run | back to the first mirror |
-| `retain()` / `deinit()` | the upstream reference count | the upstream reference count |
+| `retain()` / `deinit()` | the upstream reference count, with the same second-handle and balanced-release rule as above | the upstream reference count, with the same second-handle and balanced-release rule as above |
 
 A script run is not simply the set of code points sharing a `Script` property
 value: punctuation that pairs with mirrored punctuation inherits the script of
@@ -234,27 +256,104 @@ sequence should not be freed until the algorithm object is in use."
 
 So:
 
-* **The code units are borrowed.** A `Source` is that rule made a type:
-  `Algorithm`, `Paragraph` and `Line` each store a copy of the `Source` record,
-  not of the text. The buffer must stay alive and unmodified until the last
-  object derived from it is deinitialised. `ScriptLocator.load` and
-  `MirrorLocator.loadLine` borrow on the same terms.
+* **The code units are borrowed, through the last derived object.** A `Source`
+  is that rule made a type and it is a plain value: `Algorithm`, `Paragraph`
+  and `Line` each store a copy of the `Source` record, not of the text, and
+  copying that record copies the borrow. The buffer must stay alive and
+  unmodified until the last object derived from it is gone — the last
+  `Algorithm`, `Paragraph`, `Line`, loaded `ScriptLocator` and loaded
+  `MirrorLocator` among them, in whatever order they were made.
+  `ScriptLocator.load` and `MirrorLocator.loadLine` borrow on the same terms,
+  and a locator that is still loaded extends the obligation.
 * **A `Paragraph` outlives its `Algorithm`** — `SBAlgorithmCreateParagraph`
-  retains it (`Source/API/SBParagraph.c`, `CreateParagraph`).
+  retains it (`Source/API/SBParagraph.c:658`). That retain is on the algorithm
+  object only; the borrowed code units are still read by the paragraph.
 * **A `Line` must not outlive its `Paragraph`** — `SBParagraphCreateLine`
   (`Source/API/SBParagraph.c:716`) validates the range and hands it to
-  `SBLineCreate`, and neither retains the paragraph: the only `ObjectRetain` in
-  `Source/API/SBLine.c` is `SBLineRetain` on the line itself (`:313`).
+  `SBLineCreate`, and neither retains the paragraph: `SBLineCreate` copies the
+  code point sequence and nothing else (`Source/API/SBLine.c:279`), and the
+  only `ObjectRetain` in that file is `SBLineRetain` on the line itself
+  (`:313`).
 * **A `MirrorLocator` outlives the handle you gave it** — `SBMirrorLocatorLoadLine`
-  retains the line (`Source/API/SBMirrorLocator.c:57`).
-* **One allocator.** `deinit` hands the object back to the upstream release
-  function, which frees it at refcount zero. There is no second allocator in the
-  facade. `SBAllocatorSetDefault` and friends stay reachable through `c` for a
-  caller that wants to move SheenBidi's allocations into a Zig allocator, but the
-  facade does not expose them: a process-wide default allocator has no owner
-  here, and a leak oracle for one would have to live outside the test framework.
+  retains the line (`Source/API/SBMirrorLocator.c:57`). That is the line
+  *object*: the locator inherits the paragraph rule above, and the code units
+  remain the caller's obligation while it is loaded.
+* **The count counts handles, not struct copies.** Every `create` and every
+  `retain` produces one handle the caller owns and owes exactly one `deinit`.
+  Assigning one value to another copies the struct and increments nothing, so
+  `deinit` on both copies gives back two references against one count.
+* **Native allocations are not Zig allocations.** `Algorithm`, `Paragraph`,
+  `Line`, `ScriptLocator` and `MirrorLocator` are allocated and freed by
+  SheenBidi, so `std.testing`'s leak oracle sees neither side of them.
 * **The one allocation the facade makes** is `Line.visualOrder`, which is
-  explicitly the caller's.
+  explicitly the caller's, from the allocator it passed and released by the
+  caller through that same allocator.
+
+#### Redirecting the native allocator
+
+`SBAllocatorSetDefault` is reachable through `sheenbidi.c` and it is
+**process-global**. `Source/API/SBAllocator.c:31` is a `static` atomic pointer
+and the setter is a bare store into it (`:276-279`), so it reaches every thread
+and every object in the process, including ones this facade never touched. This
+facade does not wrap it and does not re-expose it under another name: a
+process-wide default allocator has no owner here, and a leak oracle for one
+would have to live outside the test framework.
+
+What it controls, read out of the source:
+
+* Every object block is allocated through `SBAllocatorAllocateBlock(NULL, …)`
+  (`Source/Core/Memory.c:78`, `:95`), which resolves the **current** default at
+  the moment of the call (`Source/API/SBAllocator.c:211-218`).
+* Every free goes through `SBAllocatorDeallocateBlock(NULL, block)`
+  (`Source/Core/Memory.c:144`), which resolves the current default **again**, at
+  the moment of the release (`Source/API/SBAllocator.c:229-236`).
+* No object and no memory block records the allocator it came from.
+
+That last point is the retention rule, and it is a correctness requirement
+rather than a preference: an object created while allocator `A` was the default
+and released after the default became `B` is freed through `B`. **The default
+in force at creation must still be in force at the last release, for every
+object.** Arbitrary swaps are safe only while no object created under the
+previous default is still live. Concretely, the safe authority to change it is:
+
+* Install once, before the first SheenBidi object of the process is created, and
+  keep it installed until the last object created under it has been released.
+  Restoring the previous default, or `NULL`, is itself a change and obeys the
+  same rule — this is **not** an allocator a caller may swap at will between
+  calls.
+* The setter does not retain. It is an `AtomicPointerStore` and nothing more,
+  so the caller keeps the allocator object alive and valid for as long as it is
+  the default. `SBAllocatorRetain` (`Source/API/SBAllocator.c:297`) and
+  `SBAllocatorRelease` (`:302`) are the upstream reference count, and a process
+  that installs the same allocator from more than one place has to count its own
+  handles.
+* The allocator object is itself allocated through the default in force when it
+  was created and freed through the default in force when its own count reaches
+  zero (`SBAllocatorCreate` calls `ObjectCreate`,
+  `Source/API/SBAllocator.c:287`), so it obeys the same rule as every other
+  object.
+
+The protocol, as this implementation actually calls it: `allocateBlock` and
+`deallocateBlock` are called unconditionally (`Source/API/SBAllocator.c:217`,
+`:235`); `allocateScratch` and `resetScratch` are called only when non-`NULL`
+(`:247-251`, `:264-268`), and a scratch request that comes back `NULL` falls
+back to `allocateBlock` (`Source/Core/Memory.c:68-72`) rather than failing;
+`reallocateBlock` is called unconditionally where a `List` grows
+(`Source/Core/List.c:72`), which in this build is reached only from the
+experimental text API that is not compiled. A member the implementation calls
+unconditionally has to be non-`NULL`.
+
+Scratch and iterator memory is upstream's, not the caller's. Paragraph
+resolution and line construction request `MemoryTypeScratch`
+(`Source/API/SBParagraph.c:66`, `Source/API/SBLine.c:54`) and reset it before
+returning (`SBParagraph.c:665`, `SBLine.c:286`), so `resetScratch` runs on the
+calling thread only, and a custom allocator that implements scratch has to make
+that thread-local itself (`Headers/SheenBidi/SBAllocator.h:69-70`).
+
+`SBAllocatorGetDefault` returns the stored pointer, which is `NULL` when no
+custom allocator is installed (`Source/API/SBAllocator.c:271-274`). The
+built-in allocator used in that case is a `static` object (`:187-189`) that none
+of these functions ever returns.
 
 ### Bounds
 
@@ -277,18 +376,23 @@ sentinels very differently from a real level:
 |---|---|
 | `.auto_ltr` | rules P2 and P3 with a left-to-right fallback (`SBLevelDefaultLTR`) |
 | `.auto_rtl` | rules P2 and P3 with a right-to-left fallback (`SBLevelDefaultRTL`) |
-| `.{ .explicit = 0 ... 125 }` | the level the paragraph is resolved against, used verbatim — except for `125`, see below |
+| `.{ .explicit = 0 ... 125 }` | an explicit level. `0` through `124` are used verbatim as the level the paragraph is resolved against; `125` is accepted by the type and resolved through P2 and P3 exactly as `.auto_ltr` is — see below |
 
-`DetermineParagraphLevel` (`Source/API/SBParagraph.c:255-260`) dispatches on
-`baseLevel >= SBLevelMax`, so:
+`DetermineParagraphLevel` (`Source/API/SBParagraph.c:256-265`) dispatches on
+`baseLevel >= SBLevelMax`, using the value only to pick the P3 fallback when it
+takes that branch, so:
 
-* an explicit level is used **verbatim** for `0` through `124`;
-* **125 is the boundary**: `level_max` is inside the accepted range of the type,
-  but upstream reads it as "not explicit" and resolves it through P2 and P3. A
-  right-to-left text at `125` therefore comes back as level `1`, and a text with
-  no strong character at `125` comes back as `0`;
+* an explicit level is used **verbatim** for `0` through `124`, and the level
+  survives into `Paragraph.baseLevel()` unchanged;
+* **125 is the boundary**: `level_max` is inside the accepted range of the
+  type, but upstream reads `>= 125` as "not explicit" and resolves it through
+  P2 and P3, with a left-to-right fallback because `125` is not
+  `SBLevelDefaultRTL`. An explicit `125` therefore behaves exactly as
+  `.auto_ltr` does — a right-to-left text comes back as level `1`, and a text
+  with no strong character comes back as `0` — and never as an explicit level
+  of `125`. That is upstream's dispatch, kept as it is rather than corrected;
 * an explicit level above `125` is `Error.InvalidBaseLevel` — there is nothing
-  left to hand upstream;
+  left to hand upstream, and the three sentinels `0xFD`–`0xFF` are above it too;
 * a first-strong LTR string under `.auto_ltr` resolves to level **0**, which is
   the level P2 and P3 produce, not a sentinel.
 
@@ -334,14 +438,252 @@ nothing in this package stubs them.
   so, rather than reporting a six-target matrix it never looked at.
   **This mode has not been gated in this workspace and no run of it is claimed.**
 
+* **`-Dlinkage=static|dynamic`** — **added by this migration**,
+  `PENDING-VERIFICATION`. Selects which artifact `zig build` produces:
+  `libSheenBidi.a` or `libSheenBidi.so`. The default is `static`, which is what
+  this package has always produced; nothing about the compiled C changes with
+  it. A shared build is a real shared object — position-independent code, real
+  exports, and a genuine dependency closure — not a renamed archive. "Static"
+  here means a static library artifact and nothing more: SheenBidi calls
+  `malloc`, `free`, `memcpy` and `memmove`, so no configuration of this package
+  produces a wholly static executable, and no document in this package claims
+  one.
+  **One asymmetry, on purpose.** `dynamic` also defines the DLL macros upstream's
+  CMake defines for a DLL build (`CMakeLists.txt:123-127`): `SB_CONFIG_DLL_EXPORT`
+  on the C compile line and `SB_CONFIG_DLL_IMPORT` on the translation line, in
+  bundled and `-fsys=sheenbidi` mode alike. They are keyed to the artifact kind,
+  not to the target, because `SB_PUBLIC` expands to
+  `__declspec(dllexport)`/`__declspec(dllimport)` only under `_WIN32`
+  (`Headers/SheenBidi/SBBase.h:30-42`) and is empty everywhere else. The two
+  lines never carry the same macro, and `zig/translate.h` defines no
+  `SB_CONFIG_*` at all, so each is defined exactly once and on exactly one
+  command line. In `-fsys=sheenbidi` the macro follows `system_linkage` rather
+  than `linkage`, because that mode builds no artifact of ours, and
+  `preferred_link_mode` follows the same value, so the header decoration and the
+  linker cannot describe two different libraries. Under the default `static`
+  neither macro is defined.
+
+* **`-Druntime=true`** — **added by this migration**, `PENDING-VERIFICATION`.
+  Described in the next section. It still compiles and installs exactly what
+  `-Dlinkage` asked for and drops only the link: `c` becomes a generated
+  dispatch and the facade is not linked against `libSheenBidi`. Delivery and
+  dispatch are separate knobs and neither rewrites the other. `zig build` also
+  installs `bin/misuse` (`runtime/misuse.zig`) in every configuration.
+  The two options are orthogonal, so all four pairings are real configurations
+  and CI builds each: `-Druntime` never changes what is installed, and
+  `-Dlinkage` never changes what the facade is bound to.
+
+## Runtime loading and the ABI it needs
+
+**Added by this migration. Partly observed on 2026-10-04.** The eight `loaded`
+receipts ran `-Druntime=true` with `SHEENBIDI_PROVIDER` set to a separately built
+`libSheenBidi.so`, across both linkages and all four optimize modes, and all
+exited 0 — so a successful load through the generated dispatch is a recorded
+fact. Everything narrower is still a contract: no failed load, retry,
+idempotence check or provider change has run, and no `bin/misuse` observation
+has. What follows is the contract this configuration is held to, and the ABI a
+loaded image must satisfy; see
+[Verification status](#verification-status) for which rows moved and which did
+not.
+
+`-Druntime=true` builds the facade against a generated dispatch that routes the
+selected native externs through a resolved table instead of calling the
+translated C directly. In that configuration:
+
+* the facade **does not link** this package's own artifact. The artifact is
+  still compiled and still installed — a native delivery choice and the dispatch
+  mechanism are separate, and neither implies the other.
+* the translated native type and constant namespace is **retained**: the
+  generated dispatch holds the same declarations, reached by the same names.
+  There is no second, nominally distinct copy of the native structs to cast
+  between.
+* the root exports the loader's surface for this configuration only:
+  `load(LoadSource) LoadError!void`, `LoadSource` (`.path` names a file,
+  `.system` an explicit name for the platform loader) and `LoadError`, plus
+  `loadedSource()`. In the ordinary linked configuration the module is used as
+  described above, with no loader in the picture — and calling `load` there is
+  an immediate panic rather than a silent no-op.
+
+### The pairing that needs an explanation
+
+`-Druntime=true -Dlinkage=static` installs `lib/libSheenBidi.a` *and* makes the
+program load a shared object built separately from this same source tree. That is
+not a contradiction: what this build installs and what the loader opens are two
+different facts. It is the compatible-external-provider case the runtime route
+exists for — the dispatcher was compiled against this tree's headers, the image
+came from another build of the same revision. A 32-bit provider in a 64-bit
+process still cannot work, and nothing in the loader can detect that; see the
+first ABI point below.
+
+### The misuse observation
+
+What a call before a successful load does cannot be observed from inside the test
+binary that causes it — a panic stops the process. `runtime/misuse.zig` is that
+observation: a small program installed as `bin/misuse` in **every**
+configuration, run as a child process, with three observations —
+
+```sh
+./bin/misuse pre-load           # stops: the call arrived before any load
+./bin/misuse after-load <path>  # succeeds: the same call after a real load
+./bin/misuse linked-load        # stops: a linked build has nothing to load
+```
+
+`after-load` is the control: without it, a stop in `pre-load` would be
+indistinguishable from a build that is broken for some other reason. The call is
+`versionString`, which reaches `SBVersionGetString` and nothing else. CI builds
+all four pairings and runs these three; **no CI run of this package has been
+executed here**, so no hosted-runner result is claimed.
+
+### What the loader guarantees
+
+One global table per configured module instance, living to process exit. There is
+no owning `Library` object and no API view to keep alive: a caller loads once,
+explicitly, and then makes ordinary module calls.
+
+* **Explicit source, no fallback.** The source is either an explicit absolute
+  file path or an explicit system basename. There is no path-to-system fallback:
+  asking for a basename never silently becomes a search of the system, and
+  asking for a path never silently resolves to something else.
+* **Publication is atomic and the state is checked.** The table is published
+  only when every selected symbol resolved and the library validated, and only
+  then does it read as ready. A reader that finds it not ready — in **every**
+  optimize mode, ReleaseFast and ReleaseSmall included — is a programming error
+  and panics rather than calling through a null slot. A failed candidate closes
+  itself and publishes nothing.
+* **Retries are explicit.** A failed load is not retried automatically. A caller
+  may ask again; a caller that has not asked again gets the same failure.
+* **Idempotence and provider change.** The same request twice is the same
+  request. A different request after a successful one is rejected rather than
+  served. Successful handles and a copy of the chosen request live until the
+  process exits.
+* **Concurrency.** A call that arrives while an attempt is in progress waits for
+  *that* attempt and receives its result, not the result of a later one.
+  Waiters on a failed attempt drain before a new attempt may start, so two
+  attempts never overlap in a way that could publish twice. A reentrant loader
+  call on the thread already inside the loader returns an explicit error.
+  Native constructors that call back into the loader, and the general
+  cross-thread ordering of such a call, remain outside what this contract can
+  promise; they are a documented boundary, not a tested path.
+
+### The ABI a loaded image has to satisfy
+
+Resolving a symbol and releasing a handle are not ABI evidence. What has to
+hold, read out of upstream's headers and sources:
+
+* **Declarations.** The whole public surface is declared by
+  `Headers/SheenBidi/SheenBidi.h`; the dispatch routes that surface and nothing
+  outside it.
+* **Scalar widths.** `SBUInteger` is `uintptr_t` and `SBInteger` is `intptr_t`
+  (`Headers/SheenBidi/SBBase.h:97-102`), so every offset, length and index
+  crosses at the machine-word width of the **target**, not of the provider's
+  build host; `SBLLevel`, `SBBidiType`, `SBScript` and `SBGeneralCategory` are
+  all `SBUInt8`. A provider built for a 32-bit target and loaded into a 64-bit
+  one cannot work, and nothing in the loader can discover that.
+* **Struct layout, all five by pointer.** `SBCodepointSequence`
+  (`SBCodepointSequence.h:32-36`), `SBAllocatorProtocol`
+  (`SBAllocator.h:108-136`), `SBRun` (`SBRun.h:28-32`), `SBScriptAgent`
+  (`SBScriptLocator.h:31-35`) and `SBMirrorAgent` (`SBMirrorLocator.h:31-36`)
+  cross the boundary by pointer, so their field order and padding are part of
+  the contract. None has a configurable field, so a provider built from any
+  revision of these headers at this pin agrees with them.
+* **Handles do not cross images.** `SBAlgorithmRef`, `SBParagraphRef`,
+  `SBLineRef`, `SBScriptLocatorRef`, `SBMirrorLocatorRef` and `SBAllocatorRef`
+  are opaque handles to objects the provider owns, and retain/release must be a
+  real count: the facade hands out one handle per `create` and per `retain`. The
+  mirror locator's retain of a line (`Source/API/SBMirrorLocator.c:57`) and the
+  paragraph's retain of its algorithm (`Source/API/SBParagraph.c:658`) are what
+  the lifetime rules rest on. Create, use and release through one image; mixing
+  a loaded copy with a linked copy is undefined in both directions.
+* **Callback structures.** `SBAllocatorProtocol` is a struct of six function
+  pointers, each taking a `void *info` context
+  (`Headers/SheenBidi/SBAllocator.h:108-136`), and is passed **by pointer**.
+  The header requires only `allocateBlock` and `deallocateBlock`; the
+  implementation calls `reallocateBlock` unconditionally wherever a `List`
+  grows, so `NULL` there is a null call and not a fallback. See
+  [Redirecting the native allocator](#redirecting-the-native-allocator).
+* **The default allocator is process-global and its lifetime is the caller's.**
+  `SBAllocatorSetDefault` stores into a single `static` atomic pointer and does
+  not retain, so the caller owns the allocator's lifetime; nothing records which
+  allocator an object came from, because allocate and free each resolve whatever
+  is current at that moment. A process that swaps the default while objects are
+  live frees them through a different allocator than they were created with.
+  This is the sharpest constraint on any dispatch, linked or loaded: the default
+  in force at creation must still be in force at the last release. A custom
+  allocator that implements `allocateScratch` must make its scratch per-thread
+  itself, because the core resets scratch on the calling thread only.
+* **All fifty-one public functions, and no data.** A provider must export every
+  `SB_PUBLIC` declaration of the headers `zig/translate.h` reaches in this
+  configuration — the full list, with its header and line, is in
+  `runtime/library.zig:14-34` — and exports no data symbol at all: the two tables
+  behind the code point queries are internal to `Source/Data/`. The seven
+  headers behind `SB_TEXT_API_SUPPORTED` are not an optional set here; they do
+  not exist on either side of the boundary in this configuration.
+* **No variadic entry point**, so a dispatch has none to reproduce, and no data
+  to copy: anything a consumer needs from a loaded image is reached by address
+  inside that image.
+
+**What is deliberately not a requirement.** Which Unicode revision a provider's
+tables were built from. Nothing in the headers selects one, so two providers that
+agree on the four points above can still disagree about a code point introduced
+after the older was built. The conformance fixtures in `Tools/Unicode/` bound
+this package's own answer, not a provider's.
+
+**What is checked at load time.** After every symbol resolves and before anything
+is published, `runtime/library.zig`'s `validate` makes observations that are
+properties of the ABI rather than of a Unicode revision: `SBVersionGetString()`
+answers a NUL-terminated string that is neither empty nor unbounded;
+`SBCodepointGetBidiType('A')` is `SBBidiTypeL` and `SBCodepointGetScript(U+05D0)`
+is `SBScriptHEBR`, values that have held in every revision SheenBidi has shipped;
+and `SBAlgorithmCreate` accepts an `SBCodepointSequence` this build laid out
+itself and returns an object real enough to release. Those are checks, not proof:
+resolving fifty-one symbols shows the file is a SheenBidi of some build, and
+nothing walks a type the provider declared, because it declares none.
+
+### What is not claimed
+
+The load itself is observed: the eight 2026-10-04 `loaded` receipts each print
+`configuration: loaded` and exit 0. Everything else in this section is still a
+contract rather than a result — no load of a *compatible external provider*
+distinct from the separately built image those receipts used, no misuse
+observation (`pre-load`, `after-load`, `linked-load`), no startup check, no
+failure path, no retry, no idempotence check, no provider-change rejection, and
+no release-mode panic check. Those are the driver's remaining gates for this
+migration, and until one of them runs with its receipt recorded in
+[Verification status](#verification-status), each statement here about it is a
+contract.
+
 ## The installed C contract
 
-`zig build --prefix <dir>` writes two things and nothing else:
+`zig build --prefix <dir>` writes the library, every public header, and —
+**added by this migration**, and now observed on 2026-10-04 — the licence and
+provenance documents, the Unicode data files they cover, and
+`lib/pkgconfig/SheenBidi.pc`:
 
 ```
-<dir>/lib/libSheenBidi.a       the static archive — one unity translation unit
-<dir>/include/SheenBidi/*.h    upstream's 23 public headers, unedited
+<dir>/lib/libSheenBidi.a              static, the default; with -Dlinkage=dynamic,
+                                    libSheenBidi.so.3.0.0 plus the libSheenBidi.so.3
+                                    and libSheenBidi.so names, SONAME libSheenBidi.so.3
+                                    (upstream CMakeLists.txt:143-147); on Windows
+                                    bin/SheenBidi.dll and lib/SheenBidi.lib
+<dir>/include/SheenBidi/*.h           upstream's 23 public headers, unedited
+<dir>/lib/pkgconfig/SheenBidi.pc      pkg-config metadata, from build.zig; the
+                                      base name is the library name, and prefix
+                                      is ${pcfiledir}/../..
+<dir>/bin/misuse                      the misuse executable, in every configuration
+<dir>/share/doc/sheenbidi/…           LICENSE, NOTICE.md, FORK-LICENSE.md,
+                                      README.md, README.upstream.md, README.zig.md,
+                                      UPSTREAM.md, UPSTREAM.sha256, CHANGELOG.md,
+                                      FORK-NOTES.md
+<dir>/share/doc/sheenbidi/unicode/    the eleven Tools/Unicode/*.txt data files,
+                                      unmodified, with their own terms intact
 ```
+
+The **link inputs** a C consumer needs are still exactly the first two lines:
+the archive and the include directory. Everything under `share/doc` is material
+a recipient has to be able to read and audit, not something a compiler reads —
+which is why the eleven Unicode files travel there rather than into a data
+directory: their terms are named inside the files themselves, and a recipient of
+the built package must receive those terms with the data.
 
 The headers are installed *into* the include path rather than beside the
 archive, so `-I <dir>/include` is the whole search path a C caller needs, and
@@ -353,7 +695,7 @@ No configuration macro is passed to the consumer and none is needed: the only
 consumer's view of the headers, and `Headers/SheenBidi/SBConfig.h` ships every
 macro commented out.
 
-That contract is observed, not merely described. The driver installed to a
+Those two link paths are observed, not merely described. The driver installed to a
 prefix on a second host — `zig build --prefix <dir>`, green, with the core
 **compiled** rather than reused, `compile lib SheenBidi Debug native success 4s`
 (`…-sheenbidi-installed-artifact-gruenau8-175.log`) — and then compiled and ran
@@ -394,6 +736,157 @@ expectation fail it differently. It is generated inside
 `.github/workflows/verify.yml`, whose `native` job runs it as the step
 "installed C headers compile, link and run" — after `zig build` and ahead of
 `test`, so a break in the C contract fails CI before the tests do.
+
+## Nix and devenv
+
+**Added by this migration. Status: `PENDING-VERIFICATION`** — no derivation has
+been built and no devenv shell has been entered under a gate in this workspace,
+so what follows describes the packaging, not a result.
+
+### devenv is the canonical development environment
+
+```sh
+devenv shell                 # or: direnv allow, via .envrc
+devenv build outputs.static  # the same package.nix the flake uses
+devenv build outputs.shared
+```
+
+`devenv.nix` is deliberately light: it supplies the **tools** — the Zig 0.16.0
+compiler and pkg-config — and nothing else. The SDK is not a shell package, so
+entering the shell never compiles SheenBidi. Namespaced `sheenbidi:*` tasks
+(`build`, `test`, `smoke`, `check`, `install`, `consumer`, `integrity`) run this
+package's own build graph on demand, against this working tree. `build` and
+`install` write to an external `--prefix` beneath the exported
+`ZIG_LOCAL_CACHE_DIR`, else `$XDG_CACHE_HOME`, else `$TMPDIR`, so no task writes
+`zig-out/` into this checkout; `test`, `smoke`, `check` and `consumer` install
+nothing at all, because their steps never reach `b.getInstallStep()`. A caller's
+own `--prefix`, arriving in the task's `"$@"`, still overrides that default.
+
+**Every task that reaches `zig build` fixes its job count and its cache.**
+`build`, `test`, `smoke`, `check`, `install` and `consumer` each pass a literal
+`-j8` and a literal `--cache-dir`, always ahead of the caller's `"$@"`, so no task
+takes its parallelism from whatever the machine offers and no task keeps its
+build cache at a build root in this checkout. `--cache-dir` names
+`$ZIG_LOCAL_CACHE_DIR`, and the same snippet fills that from `$XDG_CACHE_HOME`
+else `$TMPDIR` when the caller exported none, exports `ZIG_GLOBAL_CACHE_DIR` the
+same way, and creates both before zig starts — in the task body, because
+`devenv tasks run` does not run `enterShell`. A caller that exported either
+variable keeps its own value. `integrity` runs `sha256sum` and reaches no build
+at all. `devenv tasks run` on devenv 2.4 takes no trailing argument, so `"$@"`
+is empty on that route. See `CHANGELOG.md` entry 33.
+
+**Each task locates this checkout itself.** devenv generates a task wrapper with
+the *project* directory as its working directory when the environment is entered
+with `--from path:<this SDK>`; `DEVENV_ROOT` names that project, and
+`devenv tasks run` does not run `enterShell` either. Every exec therefore
+changes into a path this `devenv.nix` evaluates — `builtins.toString ./.`,
+quoted with `lib.escapeShellArg` — before it runs anything. On 2026-10-04,
+before that, `sheenbidi:consumer` and `sheenbidi:integrity` failed with
+`cd: consumer: No such file or directory` and
+`sha256sum: UPSTREAM.sha256: No such file or directory`; neither ran `zig`. See
+`CHANGELOG.md` entry 32.
+
+`outputs.static` and `outputs.shared` are the *same* `package.nix` the flake
+uses, exposed as lazy devenv outputs: nothing is evaluated until a build asks
+for one. `devenv build outputs.static` is therefore the packaging route from
+inside a shell, and it is a real build, not a command that echoes what a build
+would do.
+
+**State placement is the caller's.** Supply `TMPDIR`, `DEVENV_HOME`,
+`XDG_RUNTIME_DIR` and both Zig caches on approved local scratch before entering
+the shell; `devenv` otherwise puts its runtime sockets under `/tmp`. This file
+hard-codes no mount, account or store path, and it erases none of those
+variables — which is also why it cannot promise where any state ended up. What
+is true of the file is only this: it adds no path of its own.
+
+No task reaches that state now: all six that run `zig build` name `--cache-dir`
+explicitly and fill both Zig cache variables before the compiler starts, so none
+of them writes `.zig-cache/` here or under `consumer/`. A bare `zig build` typed
+by hand in this checkout still does, and `.gitignore` excludes that directory in
+both places, which is what entries 14 and 32 record. That is the whole extent of
+what a build can leave behind in this checkout: nothing else is written here.
+
+A `flake.lock` is present in this working copy, pins `nixpkgs` to the same commit
+`flake.nix` names, and ships in `build.zig.zon` `.paths`, so a fetched copy
+carries the pin its flake declares; no `devenv.lock` exists here and none is
+listed. No file of this package writes either one, and `.gitignore` deliberately
+ignores neither. The derivation filters both out of the source it hands the
+build, which is a separate axis and not a defect: `zig build` never reads a lock
+file, so it is the build's input rather than the package's contents, and the Nix
+flake frontend has already resolved the locked inputs by the time the derivation
+runs. `devenv.yaml` pins its nixpkgs input by commit rather than by a floating
+branch name.
+
+### Nix is the delivery, and it is two variants of one derivation
+
+`package.nix` is one uncurried derivation returning **one** result, with
+`linkage` as its only variant parameter; `flake.nix` and `devenv.nix` are the two
+places the variants exist. It imports nothing from a sibling workspace, names no
+host path, downloads nothing, and adds no C flag: `-std=c90`, `-DSB_CONFIG_UNITY`
+and the absence of the experimental text API are decided by `build.zig` and stay
+decided there. It filters version control, caches, previous outputs, devenv state
+and `result` links out of the source it hands the build; everything the build
+compiles, installs and tests stays.
+
+The derivation is install-only (`dontBuild`, `dontConfigure`, `dontCheck`, and
+**not** `dontInstall`, which would disable the real install phase). Inside that
+one phase it exports both Zig caches under the Nix-provided `TMPDIR`, outside the
+unpacked source, and passes `-j"${NIX_BUILD_CORES:-1}"`, one optimize selection,
+`-Dcpu=baseline`, `-Dlinkage=<variant>` and `--prefix "$out"` to a single
+`zig build`. There is no second invocation with different flags.
+
+```sh
+nix build .#static     # $out/lib/libSheenBidi.a
+nix build .#shared     # $out/lib/libSheenBidi.so
+nix build .#default    # == static, this package's existing linkage policy
+```
+
+`build.zig` is the only writer of the installed closure: library, all 23 public
+headers, the licence and provenance documents, the Unicode data files and
+`lib/pkgconfig/SheenBidi.pc`. The derivation adds no file of its own and holds no
+list of the install's paths, so there is no second place in which any of them can
+be described wrongly; what it still contributes is the two assertions that
+`linkage` is one of the two values and that Zig is 0.16.0 rather than a floating
+toolchain.
+
+That `.pc` file is written from **upstream's own** `sheenbidi.pc.in` with one
+value changed: `prefix` is `${pcfiledir}/../..`, relative to the file pkg-config
+found, instead of CMake's configure-time absolute path. That is what removed the
+old reason for a derivation to write its own — a fixed `$out` needs no fixing —
+and with it the duplicate. An earlier version filled the template into a second,
+lower-case `lib/pkgconfig/sheenbidi.pc`; both files carried `Name: SheenBidi`, so
+one library was described twice and the two disagreed on the only field that
+depends on the variant. The graph's file appends
+` -DSB_CONFIG_DLL_IMPORT` to `Cflags:` under `-Dlinkage=dynamic`
+(`build.zig:972`), where the derivation's substituted empty. So `nix build .#shared`
+carries the DLL-import Cflags and `nix build .#static` does not.
+
+**What is observed, and what is still a prediction.** Every `build.zig` claim in
+this subsection is observed for the `zig build install --prefix` route: the
+2026-10-04 gates installed `lib/pkgconfig/SheenBidi.pc` and nothing else beside
+it, the static prefix's file ends `Cflags: -I"${includedir}"` and the dynamic
+prefix's ends `Cflags: -I"${includedir}" -DSB_CONFIG_DLL_IMPORT`, both with
+`prefix=${pcfiledir}/../..` and `Name: SheenBidi`. No derivation has been built,
+so the `nix build` sentences above are source-confirmed and still unverified —
+including the claim that `.#static` and `.#shared` differ in `Cflags:`, which
+rests on `build.zig:972` and on `-Dlinkage=${linkage}` in `package.nix:88`.
+
+Two boundaries, stated rather than papered over:
+
+* **No wholly static closure is claimed, for any variant.** SheenBidi allocates
+  through `malloc`/`free` and copies through `memcpy`/`memmove`, so a consumer
+  of `libSheenBidi.a` still links the platform C runtime. `static` describes the
+  library artifact, full stop.
+* **`SheenBidi.pc` describes the variant it was installed for, and `Libs:` is the
+  same either way.** On `_WIN32`, `SB_PUBLIC` expands to
+  `__declspec(dllimport)` only when `SB_CONFIG_DLL_IMPORT` is defined
+  (`Headers/SheenBidi/SBBase.h:30-42`), which upstream's own CMake adds for a DLL
+  build. `build.zig` keys that `-D` to the artifact kind, not the target: a
+  `-Dlinkage=dynamic` install writes it into `Cflags:` whatever the target is,
+  and a `-Dlinkage=static` install writes nothing. `Libs:` is
+  `-L"${libdir}" -lSheenBidi` in both, and no `Libs.private:` line exists at all.
+  So the file's `Cflags:` is right for the variant it was installed for and wrong
+  for the other one; do not read it as describing a Windows DLL consumer at all.
 
 ## Examples
 
@@ -463,6 +956,10 @@ from this directory; every other row ran against this working tree.
 [`FORK-NOTES.md`](FORK-NOTES.md) carries the same status from the point of view
 of each decision and links here rather than repeating the output.
 
+The table that follows is what was observed **before** this migration; the
+section after it lists what this migration still owes a gate. Neither is a
+result for the other.
+
 | Gate | Command | Observed | Receipt |
 |---|---|---|---|
 | integrity | `sha256sum -c UPSTREAM.sha256` | green, exit 0 — 218 records, every line `<path>: OK`, nothing failed | `…-sheenbidi-immutable-source-integrity-120.log` |
@@ -483,8 +980,84 @@ of each decision and links here rather than repeating the output.
 | integrity, **inside the fetched package** **(materialised copy)** | `sha256sum -c UPSTREAM.sha256`, run in that materialised copy | green, exit 0 — the same 218 records, every line `<path>: OK`, nothing missing | `…-sheenbidi-stdout-closed-package-integrity-443.log` |
 | consumer, **inside the fetched package** **(materialised copy)** | `zig build run --summary all --cache-dir <scratch> --global-cache-dir <zig cache>` in that copy's `consumer/` | green, exit 0, 6/6 steps; prints visual order `12 13 11 10 9 7 8 6 5 4 3 2 1 0`, four mirrors and the row-45 confirmation. The earlier empty-output receipt 338 remains history, superseded by the explicit flush | `…-sheenbidi-stdout-closed-package-consumer-444.log` |
 
-**Why the `test` row names two receipts, and what `38/38` counts.** The `test`
-step builds and runs `tests.zig` in Debug and in ReleaseSafe itself, so each
+### Pending verification for this migration
+
+Everything in the table above was observed **before** this migration, against the
+package as it stood on 2026-10-03. That remains true of those rows and they are
+evidence about the predecessor, not about what is in the tree now. The rows
+below describe the current tree: some are now observed, and the rest are not.
+
+**Observed on 2026-10-04.** Sixteen gates ran between 15:09 and 15:20 UTC, all
+exit 0, receipted at
+`…/contract-physics-lua/current-native-evidence/sheenbidi-current-{native,loaded}-{static,dynamic}-{Debug,ReleaseSafe,ReleaseFast,ReleaseSmall}-…json`
+— eight `native` (`-Druntime=false`) and eight `loaded` (`-Druntime=true`), each
+across both linkages and all four optimize modes. Each ran
+`zig build test smoke install` with `-j8 --summary all` against a scratch
+`--prefix`.
+
+| Gate | Command | Status |
+|---|---|---|
+| static and shared artifacts | `zig build install -Dlinkage=static` and `-Dlinkage=dynamic`, each in Debug, ReleaseSafe, ReleaseFast and ReleaseSmall | **OBSERVED**, exit 0 in all eight cells. Each prints `51/51 steps succeeded` (native) or `52/52 steps succeeded` (loaded) and installs the library. The 2026-10-02 round in the table above predates these changes |
+| installed closure | inspect a prefix install: library, 23 headers, the document set, the eleven Unicode files | **OBSERVED** for the document set, the eleven Unicode files and `lib/pkgconfig/SheenBidi.pc` — the install step summary names each of them, and the `sheenbidi-static` and `sheenbidi-shared` prefixes are readable on disk. That `lib/pkgconfig` holds `SheenBidi.pc` and nothing else is observed too |
+| runtime loading, the load itself | `-Druntime=true` with `SHEENBIDI_PROVIDER` set to a separately built `libSheenBidi.so`, across both linkages and all four modes | **OBSERVED**, exit 0 in all eight loaded cells. Each prints `configuration: loaded`, runs the suite under a generated dispatch (`sheenbidi-runtime-generate-…` appears in the step tree) and asserts in `smoke`. A successful load is now a recorded fact, not a contract |
+| behavioural tests and smoke | `zig build test smoke` | **OBSERVED**, `44/44 tests passed` per invocation — `run test 22 pass (22 total)` twice, Debug and ReleaseSafe. The count is 22 per mode; the `38/38` and `19 per mode` in the table above are the pre-migration figures |
+| installed C surface, new closure | compile and run a C program against the installed headers and artifact | **PENDING-VERIFICATION** — the green receipt in the rows above is pre-migration |
+| integrity, after the README relocation | `sha256sum -c UPSTREAM.sha256` | **PENDING-VERIFICATION**. The record's `README.md` line became `README.upstream.md` with the digest unchanged and the count still 218; the check has not been re-run |
+| pinned native bytes, after the relocation | `git diff --exit-code cfe430e7… -- Headers Source Tests Tools LICENSE CMakeLists.txt Makefile meson.build meson_options.txt README.upstream.md` | **PENDING-VERIFICATION**. The path list must name the preserved README; comparing the fork's own `README.md` against the pinned commit would be a different question |
+| `bin/misuse` observations | the three per runtime cell (`pre-load` stops, `after-load` succeeds, `linked-load` stops), the process-lifetime table, explicit path or named-system selection, no fallback, atomic publication, explicit retry, and the pre-initialization check in **every** optimize mode | **PENDING-VERIFICATION**. The 2026-10-04 receipts record `install misuse`, not a run of it. The contract is in [Runtime loading](#runtime-loading-and-the-abi-it-needs) |
+| run-step side-effect flag | the same command twice in one cache dir, showing the second run executes rather than being served | **PENDING-VERIFICATION**. `has_side_effects` is set on the smoke and test run steps; the sixteen receipts predate that change, so they are not evidence for it |
+| six-target compile check and the full matrix | `zig build check` over the six targets, `cross-test` over the published 53 | **OBSERVED** in the current source epoch — the two rows in [The current source epoch](#the-current-source-epoch) below, with their epochs, receipts and counts. Neither derives a full-suite runtime pass: the baseline ran nothing, and 33 of the 53 cells are `build_only` |
+| package materialisation | `zig fetch`, then the integrity check and the consumer inside the fetched copy, after `.paths` gained the packaging files and `flake.lock` | **PENDING-VERIFICATION** |
+| canonical devenv shell | `devenv shell`, then each namespaced `sheenbidi:*` task, then `devenv build outputs.static` | **PENDING-VERIFICATION**. Entering the shell must build nothing, and the driver supplies `TMPDIR`, `DEVENV_HOME`, `XDG_RUNTIME_DIR` and the Zig caches on approved scratch |
+| Nix delivery | `nix build .#static`, `nix build .#shared`, `nix build .#default`, each inspected, plus the output dependency records | **PENDING-VERIFICATION**. The `.pc` claims in [Nix and devenv](#nix-and-devenv) are source-confirmed and observed for a prefix install; no Nix output has been built or inspected |
+| `zig build -fsys=sheenbidi` | — | **never run**, before this migration or in it, at run time or at compile time. Unchanged, and still unclaimed |
+
+### The current source epoch
+
+Four rounds ran against the tree as it stands, each under its own epoch. They
+are the current rows; everything dated above describes the tree as it stood on
+its own date.
+
+| Gate | Epoch and receipt | Observed |
+|---|---|---|
+| full 53-platform `cross-test` matrix | `20261004T221720228710Z-45046`, `sheenbidi-53-target-8.json` | green, exit 0: **20 pass, 33 `build_only`, 0 fail** over all 53 published targets, run at `--jobs 8 --build-jobs 8` with `source_unchanged: true`, `jobs_honoured: true`, `corrected_target_executions: 20` and an empty `problems` list. Each of the twenty reports `run=pass tests=44`; each of the thirty-three reports `run=unavailable reason=runtime_unavailable`. **This is twenty runtime passes over fifty-three targets, not fifty-three passes** |
+| six-target compile baseline | `20261005T014547Z-797a73f2`, `baseline-sheenbidi-check` | green, exit 0, `failed: false`, `Build Summary: 31/31 steps succeeded`. One invocation with no `-Dtarget` — the graph's own whole-matrix `check` step — with all six triples seen and six step lines each. `runtime_pass_claimed: false`, and `test_pass_lines` is empty because the run printed no test count at all |
+| native eight-cell wave | `20261004T233628757747Z-69351` | **8 pass**: both linkages across all four optimize modes, one `zig build test smoke install -Druntime=false -j8 --summary all` each, exit 0, `51/51 steps succeeded`, `44/44 tests passed`, `tests_skipped: 0`, with `install`, `smoke` and `test` step markers present |
+| own-loaded eight-cell wave | `20261004T232823091897Z-23133` | **8 pass**: the same eight cells with `-Druntime=true`, exit 0, `52/52 steps succeeded`, `44/44 tests passed`, `tests_skipped: 0`. Each names `SHEENBIDI_PROVIDER` and reads nothing ambient; the image every cell loaded is this SDK's own source-built one — `kind: own`, resolving to `libSheenBidi.so.3.0.0` |
+
+`44/44` is twenty-two tests in Debug and the same twenty-two in ReleaseSafe,
+from one `zig build test`, so it is never a single-mode count. The `38/38` and
+the `19 per mode` in the table above are the pre-migration figures and remain
+correct for their own date.
+
+**None of the above is a full-suite runtime pass across the 53 targets.** Twenty
+cells executed a binary; thirty-three compiled and linked and are reported as
+`build_only`, which this harness records as `runtime_unavailable`. "53 targets
+built" is not 53 runtime passes, and nothing here describes it as one.
+
+**Two items an earlier diagnostic wave raised, and they are not the same
+item.** The build graph now resolves the host before it dispatches:
+`isThisMachine` (`build.zig:762-770`) reads the resolved host's architecture,
+operating system and ABI, and `build` refuses `-fsys=sheenbidi` under a foreign
+`-Dtarget` rather than binding a library installed on this machine to a target
+this machine is not (`build.zig:1069-1073`). `Query.isNative()` cannot answer
+that question — it is false for every named target — which is why the host is
+resolved rather than inferred. `check`'s own dispatch still asks
+`target.query.isNative()` (`build.zig:1263`); that is the different question
+"was a target named?", and it is unchanged. This is a real change in this
+package's own graph and it is **applied**, and **no receipt in this section was
+taken after it landed**, so it is **not yet re-gated**. Separately, the same
+wave reported the *path of the selected header* incorrectly. That is a gap in
+the observing tool, not a defect in this package and not an SDK failure: this
+package's own semantic cells exited 0. One observer correction, now frozen,
+covers it together with the SheenBidi relative-header handling and the nested
+diagnostic and `INSTALL` observer handling; no run has happened since that
+correction was frozen, so no result of it is claimed or predicted here.
+
+**Why the `test` row names two receipts, and what `38/38` counts.** This
+paragraph and the two paragraphs after it describe the **pre-migration**
+receipts in the table above and are kept as they were recorded. The `test` step
+builds and runs `tests.zig` in Debug and in ReleaseSafe itself, so each
 invocation carries `run test 19 pass (19 total)` twice, once per mode, under a
 single `Build Summary: 11/11 steps succeeded; 38/38 tests passed`. There are two
 receipts because the step was invoked twice; `-Doptimize` does not narrow it, so
@@ -493,7 +1066,18 @@ single-mode count**: `38/38` is nineteen tests in Debug plus the same nineteen
 in ReleaseSafe, and reading either receipt as "38 in Debug only", or as "38 in
 ReleaseSafe only", is reading a number this build never produced.
 
-**What the green `test` receipts establish.** All nineteen tests pass in both
+**That count has since changed, and both figures are correct for their own
+date.** `tests.zig` now holds **22** test blocks, so the 2026-10-04 receipts
+print `44/44 tests passed` as `run test 22 pass (22 total)` twice. The
+arithmetic rule is unchanged and is the one that matters: a single `zig build
+test` reports both modes together, so it is never a per-mode number, and neither
+nineteen nor twenty-two is a count of a single optimize mode. The three extra
+tests were added by the migration; the conformance replays and the boundary
+cases they check are still in the file.
+
+**What the green `test` receipts establish** *(the pre-migration pair; the
+2026-10-04 equivalents are in the current rows above and report 22 per mode)*.
+All nineteen tests pass in both
 modes, and that includes the two conformance replays in full: each counts the
 rows it replayed and compares the count with a constant, so a pass is 91 707
 character rows and 490 846 property rows / 770 241 cases rather than an
@@ -561,11 +1145,13 @@ the harness's; this package contributes the `test` graph and a
 `cross-test.profile.sh` of four ordinary Bash variable definitions.
 
 The `test` step is what makes that meaningful here: it attaches a **run**
-artifact for every mode it builds (`build.zig:329-340`), so a cell with a runner
-executes all nineteen tests and a cell without one still compiles them. When the
-harness declines to run a foreign binary it replaces that run step's action with
-a skip and leaves its compile dependencies in place (`run_policy.zig:55-57`,
-`:103-105`), so the cell is `build_only` — compile evidence, never a pass.
+artifact for every mode it builds (`build.zig:1238-1244`), so a cell with a
+runner executes every test in that mode — nineteen per mode on 2026-10-02,
+twenty-two on the current tree — and a cell without one still compiles them.
+When the harness declines to run a foreign binary it replaces that run step's
+action with a skip and leaves its compile dependencies in place
+(`run_policy.zig:55-57`, `:103-105`), so the cell is `build_only` — compile
+evidence, never a pass.
 
 `cross-test.profile.sh` sets `CROSS_BUILD_STEP=test`, `CROSS_BUILD_JOBS=2`,
 `CROSS_BUILD_TIMEOUT=3600` and `CROSS_TIMEOUT=1800`. It defines no hooks, no
@@ -574,11 +1160,15 @@ and `CROSS_LIBC_RUNTIMES` is deliberately left to the environment: it names
 foreign libc loaders on the machine running the harness, not something this
 package knows.
 
-**How to read a count.** One cell that runs is `38/38 tests passed`, for the
-same reason the native `test` row is: nineteen in Debug and the same nineteen in
-ReleaseSafe, from one `zig build test`. It is never "38 in Debug". The nineteen
-are unchanged — both UAX #9 replays, the representative check and the sixteen
-boundary cases — and no cell is allowed to run a subset of them.
+**How to read a count.** One cell that runs prints a per-mode pair, for the
+same reason the native `test` row does. On 2026-10-02 that was `38/38 tests
+passed`: nineteen in Debug and the same nineteen in ReleaseSafe, from one
+`zig build test`, and never "38 in Debug". On the current tree the same cell
+prints `44/44` — twenty-two in Debug and the same twenty-two in ReleaseSafe —
+because this migration added three test blocks. The nineteen were both UAX #9
+replays, the representative check and the sixteen boundary cases; the
+twenty-two are those plus the migration's three, and no cell is allowed to run
+a subset of them under either count.
 
 **Observed.** The final run of 2026-10-02 is `cross-test --jobs 2 --build-jobs
 2 --build-timeout 3600` from this directory, with `cross-test.profile.sh`
@@ -586,6 +1176,20 @@ sourced and no command-line override of the deadlines the profile sets; harness
 run id `20261002-062101-65268-4429`, `--test-timeout 1800s` per cell. It
 covered all 53 published targets and exited **0**: **20 pass, 33 build_only, 0
 fail**, `status: partial` because a `build_only` cell is not a pass.
+
+**The current epoch repeats it.** `20261004T221720228710Z-45046`, receipt
+`sheenbidi-53-target-8.json`, harness run id `20261005-003057-68533-26669`, run
+from this directory at `--jobs 8 --build-jobs 8` — the eight-job shape rather
+than the two-job one above — with `build_timeout_seconds: 3600` and
+`run_timeout_seconds: 1800` from the same profile. It covered the same 53
+published targets and exited **0**: **20 pass, 33 `build_only`, 0 fail**, with
+`source_unchanged: true`, `jobs_honoured: true`, `corrected_target_executions:
+20` and an empty `problems` list. The same twenty triples ran and the same
+thirty-three did not. Each passing cell reports `tests=44`, the current count,
+against the `38/38` printed on 2026-10-02; each `build_only` cell still reports
+`run=unavailable reason=runtime_unavailable`, and `status` is still `partial`
+because a `build_only` cell is not a pass. **No coverage moved between the two
+runs, and neither of them is fifty-three runtime passes.**
 
 The twenty cells that ran — `x86_64-linux` natively and nineteen foreign
 triples under the harness's own runner detection — are `x86_64-linux`,
@@ -649,13 +1253,14 @@ because they describe the file as it stood when they were taken.
 
 ### Not observed
 
-Three things are still unobserved, and no result is claimed for any of them.
+Four things are still unobserved, and no result is claimed for any of them.
 
 | Item | State |
 |---|---|
 | replaying `git archive` against `9bdf0c279f…cac4a28` | **not run.** It needs a re-fetch of upstream, which this workspace does not have. The digest is the driver's, recorded at import time in [`UPSTREAM.md`](UPSTREAM.md). The 218-record `sha256sum -c` above establishes this tree against the record; it does not establish the tree against upstream |
 | `zig build -fsys=sheenbidi` | **not run.** It needs an installed `libSheenBidi` at this manifest's pinned 3.0.0 with its own matching header, and none is available here |
 | the package round **after** `cross-test.profile.sh` — filtered fetch, source/fetched integrity and fetched consumer | **Driver-owned closure proof.** The current result and package identity are in the workspace ledger's `cross_test_wave.materialized_packages.sheenbidi` and `local://foundation-cross-test-package-regression.json`. The historical rows above predate the profile. Final identities stay outside package-local documents, which contribute to those identities |
+| an independent external provider for the loaded route | **not observed, and none accepted.** The route wave `20261004T232439Z` (`sheenbidi-index.json`) records `external_successes_observed: 0`, `own_routes_counted_as_external: []` and thirteen refusals, and no route in the file carries `counts_as_external_coverage: true`. The one route that succeeded was this SDK's own source-built `libSheenBidi.so.3`; each external candidate was an expected refusal — a library that does not export the fifty-one `SB_PUBLIC` functions a provider has to supply. Both eight-cell waves above are therefore own-provider evidence |
 
 The installed C surface gate is **not** the system mode, and does not stand in
 for it. That gate compiles and runs against the archive and the headers this
@@ -676,7 +1281,7 @@ sha256sum -c UPSTREAM.sha256
 
 218 records covering every upstream file this package ships — the whole
 `Headers/`, `Source/`, `Tools/` and `Tests/` trees, upstream's two build systems
-and their two `.in` templates, `LICENSE` and `README.md` — and nothing else, so
+and their two `.in` templates, `LICENSE` and `README.upstream.md` — and nothing else, so
 the same command works in a clone and in an unpacked package. That includes the
 Unicode fixtures the test root embeds and the Apache-2.0 text, not just the
 sources the build compiles. See [`UPSTREAM.md`](UPSTREAM.md) for how the
@@ -684,9 +1289,18 @@ digests were produced and what they do and do not prove.
 
 Run, that check is green: exit 0, 218 records, every line `<path>: OK`
 (`…-sheenbidi-immutable-source-integrity-120.log`). The workflow also schedules
-it, at `.github/workflows/verify.yml:57-58`, ahead of `zig build` — that is read
+it, at `.github/workflows/verify.yml:83-84`, ahead of `zig build` — that is read
 out of the file, and **no CI run of this package has been executed here**, so no
 hosted-runner result is claimed.
+
+**After this migration the record follows a rename, and its check has not been
+re-run.** Upstream's README was this package's `README.md` and is preserved
+verbatim as `README.upstream.md`, so that record line changed name and not
+digest (`34376a69…ae1c8`) and the count is still 218. The driver's extraction
+receipt records the same digest for the preserved file, which is what makes it a
+rename rather than a re-hash. **Status: `PENDING-VERIFICATION`.** The green run
+above is the run from before the move, and no result is claimed for the check
+since.
 
 The record has also been checked where a dependent finds it: run **inside the
 package `zig fetch` materialised from this directory**, it reported the same 218
@@ -708,8 +1322,19 @@ eight that carry none are the generated UCD tables in `Source/Data/`, which the
 grant covers anyway because it covers the package rather than the file. The
 eleven Unicode data files in `Tools/Unicode/` are **not** covered by it: they
 are Unicode, Inc. data files under the terms their own headers name, they
-travel unmodified with their notice intact, and this package neither restates
-nor relicenses them. The fork-authored files have no stated licence; their status
-is unassigned and no grant may be inferred from the upstream terms.
-Attribution, the licence split, the files this fork adds or edits and the
-patent-grant termination clause are in [`NOTICE.md`](NOTICE.md).
+travel unmodified with their notice intact, this package neither restates nor
+relicenses them, and they are installed unmodified beside the library with the
+terms they carry.
+
+The fork-authored files are licensed under `Apache-2.0` as well, by a **direct
+owner authorization** recorded in [`FORK-LICENSE.md`](FORK-LICENSE.md), chosen to
+match upstream's primary term; each newly authored source or build file carries
+`SPDX-License-Identifier: Apache-2.0`. That authorization post-dates the earlier
+records in this package that called the fork's files unassigned and withdrew an
+unauthorised Apache-2.0 offer (see [`CHANGELOG.md`](CHANGELOG.md) entries 14, 17
+and 18): those were accurate when written, and the authorization is what changed
+them. No copyright identity is invented for the fork's additions and none is
+attributed to an upstream author.
+
+Attribution, the licence split, the files this fork adds or edits, the installed
+closure and the patent-grant termination clause are in [`NOTICE.md`](NOTICE.md).
