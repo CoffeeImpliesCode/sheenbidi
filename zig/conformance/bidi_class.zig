@@ -78,8 +78,8 @@ pub const BidiClass = enum {
 
     /// Parses a property value name as it appears in `BidiTest.txt`.
     pub fn parseName(token: []const u8) ?BidiClass {
-        inline for (std.meta.fields(BidiClass)) |field| {
-            const candidate: BidiClass = @enumFromInt(field.value);
+        inline for (@typeInfo(BidiClass).@"enum".field_names) |field_name| {
+            const candidate: BidiClass = @field(BidiClass, field_name);
             if (std.mem.eql(u8, token, candidate.name())) return candidate;
         }
         return null;
@@ -180,8 +180,8 @@ pub const Table = struct {
     /// Checks every representative against the file, returning the first value
     /// whose representative does not have the class it stands for.
     pub fn firstInconsistentRepresentative(self: *const Table) ?BidiClass {
-        inline for (std.meta.fields(BidiClass)) |field| {
-            const class: BidiClass = @enumFromInt(field.value);
+        inline for (@typeInfo(BidiClass).@"enum".field_names) |field_name| {
+            const class: BidiClass = @field(BidiClass, field_name);
             const found = self.classOf(class.representative()) orelse return class;
             if (found != class) return class;
         }

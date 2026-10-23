@@ -14,7 +14,7 @@ tag `v3.0.0` at commit `cfe430e7375a7845b679adae9d51dac6deaa8858`.
 
 ## Build deviations
 
-Zig 0.16.0's `build.zig` replaces upstream's CMake, Meson, and Make builds. It
+Zig 0.17.0's `build.zig` replaces upstream's CMake, Meson, and Make builds. It
 compiles upstream's unity file, `Source/SheenBidi.c`, with `-std=c90` and
 `-DSB_CONFIG_UNITY`; that file includes the 32 checked-in C units. The build
 uses a C compiler and libc, does not run the upstream generator, and leaves the
@@ -36,7 +36,7 @@ not been tested.
 
 ## Consumption
 
-Requires Zig 0.16.0, a C compiler, and libc. Add the package in `build.zig.zon`:
+Requires Zig 0.17.0, a C compiler, and libc. Add the package in `build.zig.zon`:
 
 ```zig
 .dependencies = .{

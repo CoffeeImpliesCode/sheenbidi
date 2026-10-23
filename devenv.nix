@@ -4,7 +4,7 @@
 { pkgs, ... }:
 
 let
-  zig = pkgs.zig_0_16;
+  zig = pkgs.zig_0_17;
 
   # Resolve checkout paths independently of the caller's working directory.
   sdkRoot = pkgs.lib.escapeShellArg (builtins.toString ./.);
@@ -58,8 +58,8 @@ in
 
   assertions = [
     {
-      assertion = zig.version == "0.16.0";
-      message = "sheenbidi: built with Zig 0.16.0; this nixpkgs has ${zig.version}.";
+      assertion = zig.version == "0.17.0";
+      message = "sheenbidi: built with Zig 0.17.0; this nixpkgs has ${zig.version}.";
     }
   ];
 

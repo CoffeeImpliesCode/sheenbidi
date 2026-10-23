@@ -365,7 +365,7 @@ pub const Source = union(Encoding) {
 
     fn sequence(self: Source) c.SBCodepointSequence {
         return .{
-            .stringEncoding = @intFromEnum(self),
+            .stringEncoding = @backingInt(self),
             .stringBuffer = self.buffer(),
             .stringLength = self.codeUnits(),
         };

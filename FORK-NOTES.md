@@ -25,9 +25,10 @@ No upstream C source, public header, Unicode table, fixture, or C++ test is modi
 
 - `build.zig` and `build.zig.zon` replace upstream's CMake, Meson, and Make graphs with a Zig package build.
 - The build compiles `Source/SheenBidi.c` as a unity translation unit with `-DSB_CONFIG_UNITY` and `-std=c90`; it uses checked-in tables, runs no upstream generators, and leaves the experimental text API disabled.
+- Zig 0.17.0 still provides `std.Build.Step.TranslateC`; this build uses it instead of a fetched `translate-c` dependency.
 - `-Dlinkage=static|dynamic` selects the artifact; static is the default. `-fsys=sheenbidi` uses an installed library, and `-Druntime=true` generates dispatch for explicit runtime loading.
 - The graph installs headers, relocatable `SheenBidi.pc`, licence and provenance records, and Unicode data. Nix delegates installation to this graph; it does not add a second pkg-config file.
-- `test` runs Debug and ReleaseSafe. `check` compiles the facade, tests, example, and C core for six targets without running them.
+- `test` runs debug and safe optimization modes. `check` compiles the facade, tests, example, and C core for six targets without running them.
 - `cross-test.profile.sh` sets the standard `test` step, job limit, and timeouts without narrowing the target matrix.
 
 ## Platform boundaries

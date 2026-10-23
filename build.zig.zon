@@ -5,7 +5,7 @@
     .version = "3.0.0",
     // Package fingerprint; changing it affects package identity.
     .fingerprint = 0x684adc4fabea833c, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
 
     .dependencies = .{},
 

@@ -6,8 +6,8 @@
 
 assert lib.assertMsg (linkage == "static" || linkage == "dynamic")
   "sheenbidi: linkage must be static or dynamic, got ${toString linkage}";
-assert lib.assertMsg (zig.version == "0.16.0")
-  "sheenbidi: built with Zig 0.16.0, got ${zig.version}";
+assert lib.assertMsg (zig.version == "0.17.0")
+  "sheenbidi: built with Zig 0.17.0, got ${zig.version}";
 
 stdenv.mkDerivation {
   pname = "sheenbidi";

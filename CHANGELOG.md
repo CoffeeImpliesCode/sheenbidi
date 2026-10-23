@@ -2,6 +2,7 @@
 
 Fork changes relative to SheenBidi v3.0.0.
 
+- Port to Zig 0.17.0.
 - `-fsys=sheenbidi` binds an installed host library (off by default) and rejects foreign targets.
 - Devenv tasks locate this checkout and use caller-selected external cache/output paths; build tasks use eight jobs.
 - Corrected previous UTF-8 and UTF-16 decoder docs: index zero is out of range and remains unchanged.

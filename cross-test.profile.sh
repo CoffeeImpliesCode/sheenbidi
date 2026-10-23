@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Uses cross-test's standard Zig build mode and the published 0.16.0 Tier 1/2 matrix.
+# Uses cross-test's standard Zig build mode and the published 0.17.0 Tier 1/2 matrix.
 # Set CROSS_LIBC_RUNTIMES externally for foreign GNU/musl loaders.
 
 # Run the public Zig API tests.

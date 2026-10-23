@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 {
-  description = "SheenBidi 3.0.0 — the Unicode Bidirectional Algorithm, compiled from upstream's own C and packaged for Zig 0.16.0";
+  description = "SheenBidi 3.0.0 — the Unicode Bidirectional Algorithm, compiled from upstream's own C and packaged for Zig 0.17.0";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/c7def046b9a883d46974757852106483d741586f";
+    nixpkgs.url = "github:NixOS/nixpkgs/02c087f3fe673c9e317f206a627cb6b910336dbe";
   };
 
   outputs =
@@ -25,10 +25,10 @@
       packages = forEachSystem (
         pkgs:
         {
-          default = pkgs.callPackage ./package.nix { zig = pkgs.zig_0_16; };
-          static = pkgs.callPackage ./package.nix { zig = pkgs.zig_0_16; };
+          default = pkgs.callPackage ./package.nix { zig = pkgs.zig_0_17; };
+          static = pkgs.callPackage ./package.nix { zig = pkgs.zig_0_17; };
           shared = pkgs.callPackage ./package.nix {
-            zig = pkgs.zig_0_16;
+            zig = pkgs.zig_0_17;
             linkage = "dynamic";
           };
         }
