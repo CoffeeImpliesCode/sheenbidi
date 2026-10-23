@@ -1,24 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-#
-# sheenbidi/flake.nix — packages only.
-#
-# Three attributes per system, all the same derivation from `package.nix` with
-# a different delivery choice:
-#
-#   packages.<system>.static   libSheenBidi.a
-#   packages.<system>.shared   libSheenBidi.so
-#   packages.<system>.default  == static, which is what this SDK has always
-#                              produced; nothing here changes its linkage
-#                              policy silently
-#
-# There is deliberately no `devShells` and no `formatter`. The development
-# environment for this package is `devenv.nix` + `devenv.yaml` + `.envrc`, and
-# it is deliberately lighter than a nix build of the SDK itself: entering the
-# shell must not require compiling the library.
-#
-# `flake.lock` is owned by the workspace driver and is not written here. The
-# nixpkgs input below is pinned by revision, not by a floating channel, so an
-# evaluation that has a lock agrees with one that does not.
 {
   description = "SheenBidi 3.0.0 — the Unicode Bidirectional Algorithm, compiled from upstream's own C and packaged for Zig 0.16.0";
 

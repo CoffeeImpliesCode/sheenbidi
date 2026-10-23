@@ -1,51 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-//! A runnable, deterministic demonstration of the facade.
-//!
-//! The input is a published conformance row, not a string invented here:
-//! `Tools/Unicode/BidiCharacterTest.txt` line 44, which is the worked example
-//! from UAX #9 itself:
-//!
-//!   <HEBREW ALEF> <HEBREW BET> ( <HEBREW GIMEL> <HEBREW DALET> [ & e f ] . ) g h
-//!
-//! The expected paragraph level, the expected runs and the expected visual
-//! order are the ones Unicode publishes for that row. The program asserts all
-//! of them and prints them, so a run of `zig build smoke` is both a
-//! demonstration and a check: an exit status of zero means SheenBidi agreed
-//! with the published answer on every character.
-//!
-//! It then exercises three parts of the surface that row does not reach — the
-//! script locator, the borrowed decoders and a caller-supplied allocator —
-//! against answers read out of Unicode's own data files, so what is printed is
-//! what the Unicode Consortium publishes rather than what this library just
-//! said about itself.
-//!
-//! ## Naming a provider
-//!
-//! In a runtime-loading build nothing here is callable until a provider is
-//! named, and the provider is never guessed: pass `--provider <path>`, or
-//! export `SHEENBIDI_PROVIDER`. A build that was told neither stops with a
-//! message saying which of the two was missing. In the ordinary linked build
-//! both are ignored and no provider is involved at all.
-//!
-//! Nothing here depends on timing, on a locale or on an environment variable's
-//! value, so the output is the same on every host and a change in it is a change
-//! in behaviour. The version line is printed rather than asserted: which
-//! upstream release this binary was linked against, or loaded, belongs to the
-//! provenance gate.
+//! Deterministic demo of the SheenBidi facade against Unicode's BidiCharacterTest.txt.
+//! Checks one published row, script runs, decoders, and caller-supplied allocation.
+//! Runtime-loading builds require `--provider` or `SHEENBIDI_PROVIDER`.
 
 const std = @import("std");
 const sheenbidi = @import("sheenbidi");
 
-/// A shared object exporting the fifty-one entry points of the stable
-/// SheenBidi surface, named by the environment in a runtime-loading build.
+/// Environment variable naming the runtime-loaded shared library.
 const provider_variable = "SHEENBIDI_PROVIDER";
 
 /// A runtime-loading build has no provider until one is named.
 const ConfigurationError = error{NoProviderConfigured};
 
-/// The row, as code points. Kept in UTF-32 so that a code unit index in the
-/// output is also a character index and can be read against the fixture.
+/// The published row as UTF-32 code points.
 const text = [_]u32{
     0x05D0, // HEBREW LETTER ALEF
     0x05D1, // HEBREW LETTER BET
@@ -65,9 +33,7 @@ const text = [_]u32{
 
 /// Field 2 of the row.
 const expected_paragraph_level: sheenbidi.Level = 0;
-/// Field 3 of the row, collapsed into the runs the line is made of. The runs
-/// are listed in visual order, which is the order `SBLineGetRunsPtr` returns
-/// them in.
+/// Field 3 collapsed into runs in visual order.
 const expected_runs = [_]sheenbidi.Run{
     .{ .offset = 0, .length = 2, .level = 1 },
     .{ .offset = 2, .length = 1, .level = 0 },
@@ -77,12 +43,7 @@ const expected_runs = [_]sheenbidi.Run{
 /// Field 4 of the row.
 const expected_order = [_]sheenbidi.CodeUnitIndex{ 1, 0, 2, 4, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
 
-/// LATIN SMALL LETTER A, B, C, then a space, then HEBREW LETTER ALEF and BET:
-/// two scripts, with a Common space that joins the run it sits in. The expected
-/// runs are what `Tools/Unicode/Scripts.txt` gives for these code points —
-/// `0061..007A ; Latn`, `0020 ; Zyyy`, `05D0..05D5 ; Hebr` — under the
-/// locator's rule that a Common code point takes the script of the text it is
-/// enclosed by, which here is Latin.
+/// Mixed Latin and Hebrew text; Common script joins the Latin run.
 const script_text = [_]u32{ 0x0061, 0x0062, 0x0063, 0x0020, 0x05D0, 0x05D1 };
 
 pub fn main(init: std.process.Init) !void {
@@ -92,10 +53,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &buffer);
     const w = &stdout.interface;
 
-    // In a runtime-loading build nothing below can run until a provider is
-    // loaded, and the load is the one explicit step the contract asks for. In a
-    // linked build this is a no-op at comptime and the module is already
-    // usable.
+    // Load an explicit provider only in runtime mode.
     if (comptime sheenbidi.runtime_loaded) {
         const provider = try providerRequest(init);
         try sheenbidi.load(.{ .path = provider });
@@ -111,8 +69,7 @@ pub fn main(init: std.process.Init) !void {
         .{text.len},
     );
 
-    // The code units are borrowed: `text` is a local array and every object
-    // below reads through it, so it has to outlive all of them.
+    // Source buffers are borrowed and must outlive their objects.
     const source = sheenbidi.Source.fromUtf32(&text);
 
     var algorithm = try sheenbidi.Algorithm.create(source);
@@ -156,9 +113,7 @@ pub fn main(init: std.process.Init) !void {
     }
     try w.print("\n", .{});
 
-    // The two Hebrew letters head the line, and the pair comes out in the
-    // opposite order; the Latin letters and the brackets keep their places
-    // because the paragraph resolves left-to-right.
+    // Hebrew order reverses within the right-to-left run.
     try w.print("first two drawn characters: {d} then {d}\n", .{ order[0], order[1] });
     try w.print("row matches the published expectation\n", .{});
 
@@ -170,14 +125,7 @@ pub fn main(init: std.process.Init) !void {
     try w.flush();
 }
 
-/// `SBScriptLocator` over `script_text`.
-///
-/// The locator is a second, independent reader of the same kind of text: it
-/// copies the `SBCodepointSequence` and retains nothing, so the code units are
-/// still the caller's obligation while it is loaded. What is being checked is
-/// the Common-script rule: U+0020 is `Zyyy` in `Scripts.txt`, and the run it
-/// produces is four code units long rather than three because a Common code
-/// point takes the script of the text it is enclosed by.
+/// Checks Common-script assignment across mixed-script text.
 fn scriptRuns(w: *std.Io.Writer) !void {
     var locator = try sheenbidi.ScriptLocator.create();
     defer locator.deinit();
@@ -206,14 +154,7 @@ fn scriptRuns(w: *std.Io.Writer) !void {
     try w.print("\n", .{});
 }
 
-/// The four direct decoders, over the same three code points in UTF-8 and
-/// UTF-16.
-///
-/// These are the raw-buffer entry points rather than the sequence ones, and the
-/// point of showing them is the index space: one text, two encodings, the same
-/// code points at different code unit offsets. `a` is one code unit everywhere,
-/// GRINNING FACE is four in UTF-8 and two in UTF-16, and HEBREW LETTER ALEF is
-/// two and one.
+/// Demonstrates UTF-8/UTF-16 code-unit offsets and boundary sentinels.
 fn decoderWalk(w: *std.Io.Writer) !void {
     const utf8_units = "a\u{1F600}\u{05D0}";
     const utf16_units = [_]u16{ 0x0061, 0xD83D, 0xDE00, 0x05D0 };
@@ -229,16 +170,13 @@ fn decoderWalk(w: *std.Io.Writer) !void {
     }
     if (index != utf8_units.len) return error.DecodeLengthMismatch;
 
-    // Past the last code point the decoder reports the invalid sentinel and
-    // leaves the index where it was (`Source/API/SBCodepoint.c:245`).
+    // Past-end decoding returns invalid without advancing (SBCodepoint.c).
     const past_end = sheenbidi.codepointDecodeNextFromUtf8(utf8_units, index);
     if (past_end.codepoint != sheenbidi.codepoint_invalid or past_end.next != index) {
         return error.DecodeOutOfRange;
     }
 
-    // The same walk backwards: the Hebrew letter is the code point before the
-    // end, and asking from index 0 is the invalid case with the index unchanged
-    // (`Source/API/SBCodepoint.c:283` rejects it by a wrapping subtraction).
+    // Backward index zero is invalid (SBCodepoint.c).
     const back = sheenbidi.codepointDecodePreviousFromUtf8(utf8_units, utf8_units.len);
     if (back.codepoint != 0x05D0 or back.start != 5) return error.DecodeMismatch;
     const at_zero = sheenbidi.codepointDecodePreviousFromUtf8(utf8_units, 0);
@@ -261,33 +199,15 @@ fn decoderWalk(w: *std.Io.Writer) !void {
     try w.print("\n", .{});
 }
 
-/// A caller-supplied allocator, installed for the length of one object.
-///
-/// This is the `SBAllocatorProtocol` contract in miniature: the two members
-/// SheenBidi calls unconditionally must be set, the four it treats as optional
-/// may be left null, and the allocator object has to exist before the object
-/// that uses it. The counters are the assertion — the object below must come
-/// from `allocateBlock` and go back through `deallocateBlock`, and the live
-/// count must be back to zero.
-///
-/// The allocator is installed with the raw `c.SBAllocatorSetDefault`, because a
-/// process-wide default has no owner this module can give it. The restore is a
-/// `defer` registered *after* the allocator's own, so it runs first: that
-/// ordering is the retention rule under [Allocations], and this program obeys it
-/// rather than asserting it, because getting it wrong frees the object out from
-/// under itself.
+/// Exercises the allocator protocol with tracked allocations.
+/// Restore the process default before releasing the allocator.
 fn customAllocator(w: *std.Io.Writer, backing: std.mem.Allocator) !void {
     var counters: Counters = .{ .backing = backing };
 
     var allocator = try sheenbidi.Allocator.create(.{
         .allocateBlock = countersBlock,
         .deallocateBlock = countersDeallocate,
-        // `reallocateBlock`, `allocateScratch`, `resetScratch` and `finalize`
-        // stay null. Upstream falls back for a missing reallocate or scratch
-        // pair and never calls a missing finalize
-        // (`Headers/SheenBidi/SBAllocator.h:103-136`), and nothing in this
-        // configuration reaches the growing `List` that would need the first
-        // one.
+        // Optional reallocate, scratch, and finalize callbacks remain null (SBAllocator.h).
     }, &counters);
     defer allocator.deinit();
 
@@ -309,20 +229,10 @@ fn customAllocator(w: *std.Io.Writer, backing: std.mem.Allocator) !void {
     );
 }
 
-/// How many blocks this allocator will track at once. One algorithm object and
-/// its bookkeeping is a handful; a request past this returns null, which
-/// SheenBidi reports as an allocation failure, rather than growing an unbounded
-/// table inside a demonstration.
+/// Limits the number of blocks tracked at once.
 const max_live_blocks = 64;
 
-/// What the two callbacks below tally.
-///
-/// The blocks themselves come from `backing`, which is the caller's allocator
-/// and not SheenBidi's, so the memory is one the test framework can see: a leak
-/// in this code is `std.testing`'s to report, not an invisible one inside a
-/// third-party allocator. Each block's size is kept here because
-/// `std.mem.Allocator` frees by slice and the release callback is given only a
-/// pointer.
+/// Tracks callback allocations using the caller's backing allocator.
 const Counters = struct {
     backing: std.mem.Allocator,
     allocated: usize = 0,
@@ -330,8 +240,7 @@ const Counters = struct {
     live: [max_live_blocks]struct { address: usize, bytes: usize } =
         @splat(.{ .address = 0, .bytes = 0 }),
 
-    /// How many blocks are held right now. Each object is released before the
-    /// count is printed, so a correct scope reports zero.
+    /// Returns the current live block count.
     fn liveCount(self: *const Counters) usize {
         var live: usize = 0;
         for (self.live) |slot| {
@@ -341,16 +250,10 @@ const Counters = struct {
     }
 };
 
-/// `SBAllocatorAllocateBlockFunc`, `Headers/SheenBidi/SBAllocator.h:36`.
-///
-/// The block is aligned for a pointer, not for a byte: `ObjectCreate`
-/// (`Source/Core/Object.c`) stores an atomic reference count and the finalize
-/// function pointer in it, so a byte-aligned block would be the wrong shape.
-/// An exhausted table answers null, which is the failure the header defines.
+/// C allocation callback; blocks need pointer alignment and null signals failure.
 fn countersBlock(size: sheenbidi.CodeUnitIndex, info: ?*anyopaque) callconv(.c) ?*anyopaque {
     const counters: *Counters = @ptrCast(@alignCast(info orelse return null));
-    // A zero-byte request is the one size the header's protocol cannot
-    // express usefully here: a block of zero bytes has no address to record.
+    // Zero-sized blocks cannot be tracked.
     if (size == 0) return null;
     for (&counters.live) |*slot| {
         if (slot.bytes != 0) continue;
@@ -378,12 +281,7 @@ fn countersDeallocate(pointer: ?*anyopaque, info: ?*anyopaque) callconv(.c) void
     }
 }
 
-/// The provider this run should load, from `--provider <path>` or from
-/// `SHEENBIDI_PROVIDER`.
-///
-/// Both are explicit. Nothing here looks in a default location or falls back
-/// to a linked copy: a runtime-loading build that was not told which file to
-/// load reports that it was not told, rather than loading something else.
+/// Selects a provider path from the CLI or environment.
 fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch
         return noProvider();
@@ -398,8 +296,7 @@ fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
         return noProvider();
 }
 
-/// Say which variable is missing. An error name on its own would send the next
-/// person into the loader instead of to the command line.
+/// Reports missing runtime provider configuration.
 fn noProvider() ConfigurationError {
     std.debug.print(
         "smoke: this is a runtime-loading build. Pass --provider <path>, or " ++

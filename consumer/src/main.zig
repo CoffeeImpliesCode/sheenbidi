@@ -1,43 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-//! A consumer of the `sheenbidi` package.
-//!
-//! This program does what a text-layout engine does with a bidi library: it
-//! takes a paragraph, asks for its base level, asks for the runs it has to lay
-//! out, and asks which of its mirrored characters are inside a right-to-left
-//! run and therefore have to be drawn as their mirror image. It then asks for
-//! the script runs, which is what picks the font for each run, and it installs
-//! its own allocator, which is what a server embedding a layout engine does so
-//! that every byte SheenBidi takes comes out of one arena.
-//!
-//! The text is the published conformance row at
-//! `Tools/Unicode/BidiCharacterTest.txt` line 45, the same Hebrew-and-brackets
-//! example as line 44 run under a right-to-left paragraph:
-//!
-//!   <HEBREW ALEF> <HEBREW BET> ( <HEBREW GIMEL> <HEBREW DALET> [ & e f ] . ) g h
-//!
-//! Everything asserted below is Unicode's published answer for that row, keyed
-//! by its own line number. It is written out as a literal rather than read from
-//! the fixture, because a consumer of a published package does not have the
-//! package's test data — which is exactly what makes this an independent check
-//! of the run order rather than a restatement of it.
-//!
-//! ## Naming a provider
-//!
-//! In a runtime-loading build nothing here is callable until a provider is
-//! named, and it is never guessed: pass `--provider <path>`, or export
-//! `SHEENBIDI_PROVIDER`. A build told neither stops with a message naming the
-//! two. In the ordinary linked build both are ignored and the archive this
-//! consumer was built against is already there.
+//! Consumes the package API and checks bidi order, mirroring, script runs, and allocator ownership.
+//! In runtime-loading mode, provide `--provider <path>` or set `SHEENBIDI_PROVIDER`.
 
 const std = @import("std");
 const sheenbidi = @import("sheenbidi");
 
-/// A shared object exporting the fifty-one entry points of the stable
-/// SheenBidi surface, named by the environment in a runtime-loading build.
+/// Provider variable used by runtime-loading builds.
 const provider_variable = "SHEENBIDI_PROVIDER";
 
-/// A runtime-loading build has no provider until one is named.
 const ConfigurationError = error{NoProviderConfigured};
 
 /// BidiCharacterTest.txt line 45, field 0.
@@ -58,16 +29,10 @@ const text = [_]u32{
     0x0068, // LATIN SMALL LETTER H
 };
 
-/// Field 1: `1` is an explicit right-to-left paragraph.
 const paragraph_base: sheenbidi.BaseLevel = .{ .explicit = 1 };
 
-/// Field 2.
 const expected_paragraph_level: sheenbidi.Level = 1;
 
-/// Field 3 collapsed into runs, in the visual order a layout engine walks.
-/// Seven Hebrew characters at level 1, two Latin letters raised to level 2
-/// inside the squared brackets, three more at level 1, and the last two Latin
-/// letters at level 2.
 const expected_runs = [_]sheenbidi.Run{
     .{ .offset = 12, .length = 2, .level = 2 },
     .{ .offset = 9, .length = 3, .level = 1 },
@@ -75,14 +40,11 @@ const expected_runs = [_]sheenbidi.Run{
     .{ .offset = 0, .length = 7, .level = 1 },
 };
 
-/// Field 4.
 const expected_order = [_]sheenbidi.CodeUnitIndex{
     12, 13, 11, 10, 9, 7, 8, 6, 5, 4, 3, 2, 1, 0,
 };
 
-/// The mirrors the line contains, in the order the locator reports them.
-/// Only characters inside a right-to-left run are mirrored, and the runs are
-/// walked in visual order, so the squared bracket at index 9 comes first.
+/// Expected mirrored pairs in visual traversal order.
 const expected_mirrors = [_]struct {
     index: sheenbidi.CodeUnitIndex,
     codepoint: sheenbidi.Codepoint,
@@ -94,14 +56,8 @@ const expected_mirrors = [_]struct {
     .{ .index = 5, .codepoint = 0x005B, .mirrored = 0x005D }, // [ -> ]
 };
 
-/// The script runs a font selector would walk: LATIN SMALL LETTER A, B, C,
-/// then a space, then HEBREW LETTER ALEF and BET.
-///
-/// `Tools/Unicode/Scripts.txt` gives `0061..007A ; Latn`, `0020 ; Zyyy` and
-/// `05D0..05D5 ; Hebr`. The space is Common, and a Common code point takes the
-/// script of the text it is enclosed by, so the first run is four code units
-/// rather than three — which is the reason the font for the space is Latin and
-/// not a fallback.
+/// Expected script runs for font selection.
+/// Common characters inherit the surrounding script, so the space stays in the Latin run.
 const script_text = [_]u32{ 0x0061, 0x0062, 0x0063, 0x0020, 0x05D0, 0x05D1 };
 
 pub fn main(init: std.process.Init) !void {
@@ -116,8 +72,7 @@ pub fn main(init: std.process.Init) !void {
         try sheenbidi.load(.{ .path = provider });
     }
 
-    // `text` is borrowed: it must stay alive and unmodified until the last
-    // object below is deinitialised.
+    // The source remains borrowed until all derived objects are deinitialized.
     const source = sheenbidi.Source.fromUtf32(&text);
 
     var algorithm = try sheenbidi.Algorithm.create(source);
@@ -165,9 +120,7 @@ pub fn main(init: std.process.Init) !void {
     }
     try w.print("\n", .{});
 
-    // The Hebrew letters head the line logically and are drawn last, which is
-    // what a right-to-left paragraph means; the two Latin runs keep their own
-    // left-to-right order inside it.
+    // Visual order reverses the Hebrew endpoints while preserving the Latin runs.
     try w.print("drawn first {d} (g), drawn last {d} (alef)\n", .{ order[0], order[order.len - 1] });
     if (order[0] != 12 or order[order.len - 1] != 0) return error.RunOrderMismatch;
 
@@ -179,7 +132,7 @@ pub fn main(init: std.process.Init) !void {
     try w.flush();
 }
 
-/// The mirror walk a renderer performs while drawing, over the same line.
+/// Walks mirrored characters in the same visual order a renderer uses.
 fn mirrorWalk(w: *std.Io.Writer, line: sheenbidi.Line) !void {
     var mirror_locator = try sheenbidi.MirrorLocator.create();
     defer mirror_locator.deinit();
@@ -204,12 +157,7 @@ fn mirrorWalk(w: *std.Io.Writer, line: sheenbidi.Line) !void {
     if (mirror_locator.moveNext()) return error.ExtraMirror;
 }
 
-/// The script runs a font selector walks, and the two script tags a font
-/// lookup needs for each.
-///
-/// A renderer that looks fonts up by OpenType tag and a tool that groups runs by
-/// Unicode script need different functions here, and for `Hebr` they answer
-/// `hebr` and `Hebr`: `Source/API/SBBase.c:213` and `:581`.
+/// Checks script runs and their Unicode and OpenType tags.
 fn scriptRuns(w: *std.Io.Writer) !void {
     var locator = try sheenbidi.ScriptLocator.create();
     defer locator.deinit();
@@ -246,14 +194,8 @@ fn scriptRuns(w: *std.Io.Writer) !void {
     if (sheenbidi.scriptOpenTypeTag(latin) != 0x6C61746E) return error.ScriptTagMismatch;
 }
 
-/// An allocator this consumer owns, installed while it builds one object.
-///
-/// The counts are the assertion: an object created under this allocator is
-/// released through it, and once both halves of the scope are done the live
-/// count is zero and the blocks are the consumer's again. The default is
-/// restored before the allocator's own last release — a `defer` registered
-/// later runs first — because an object freed while its own allocator is no
-/// longer installed is freed through whatever is installed instead.
+/// Installs a consumer-owned allocator while constructing and releasing an object.
+/// The ledger confirms all blocks return before the previous default is restored.
 fn owningAllocator(w: *std.Io.Writer, backing: std.mem.Allocator) !void {
     var ledger: Ledger = .{ .backing = backing };
 
@@ -283,15 +225,9 @@ fn owningAllocator(w: *std.Io.Writer, backing: std.mem.Allocator) !void {
     );
 }
 
-/// How many live blocks this allocator will track at once.
 const max_blocks = 64;
 
-/// The bookkeeping the two callbacks keep.
-///
-/// The blocks come from `backing`, the consumer's own allocator, so nothing a
-/// consumer embeds can leak into a third-party heap: `std.mem.Allocator` frees
-/// by slice, and the release callback is given only a pointer, so each block's
-/// size is recorded here when it is taken.
+/// Tracks blocks so release callbacks can free the correct backing slices.
 const Ledger = struct {
     backing: std.mem.Allocator,
     taken: usize = 0,
@@ -308,12 +244,7 @@ const Ledger = struct {
     }
 };
 
-/// `SBAllocatorAllocateBlockFunc`, `Headers/SheenBidi/SBAllocator.h:36`.
-///
-/// The block is aligned for a pointer: an object header holds an atomic
-/// reference count and a finalize function pointer. A table with no free slot
-/// answers null, which is the failure the header defines and which SheenBidi
-/// reports as an allocation failure.
+/// Allocates pointer-aligned blocks and returns null when allocation fails.
 fn ledgerBlock(size: sheenbidi.CodeUnitIndex, info: ?*anyopaque) callconv(.c) ?*anyopaque {
     const ledger: *Ledger = @ptrCast(@alignCast(info orelse return null));
     if (size == 0) return null;
@@ -327,7 +258,7 @@ fn ledgerBlock(size: sheenbidi.CodeUnitIndex, info: ?*anyopaque) callconv(.c) ?*
     return null;
 }
 
-/// `SBAllocatorDeallocateBlockFunc`, `Headers/SheenBidi/SBAllocator.h:60`.
+/// `SBAllocatorDeallocateBlockFunc`, declared in `SBAllocator.h`.
 fn ledgerFree(pointer: ?*anyopaque, info: ?*anyopaque) callconv(.c) void {
     const ledger: *Ledger = @ptrCast(@alignCast(info orelse return));
     const address = @intFromPtr(pointer);
@@ -342,8 +273,7 @@ fn ledgerFree(pointer: ?*anyopaque, info: ?*anyopaque) callconv(.c) void {
     }
 }
 
-/// The provider this run should load, from `--provider <path>` or from
-/// `SHEENBIDI_PROVIDER`.
+/// Resolves the provider path from arguments or the environment.
 fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch
         return noProvider();

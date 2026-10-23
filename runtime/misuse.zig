@@ -1,29 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-//! The one observation a test cannot make about itself: what a call before a
-//! successful load does.
-//!
-//! A panic stops the process, so it cannot be observed from inside the test
-//! binary that caused it. This is a small program instead, built in both
-//! configurations and run as a child process; the build runner checks that it
-//! stops and that the message names the library, the function and the way out.
-//!
-//! ```sh
-//! zig build                              # build it
-//! ./misuse pre-load           # stops: the call arrived before any load
-//! ./misuse after-load <path>  # succeeds: the same call after a real load
-//! ./misuse linked-load        # stops: a linked build has nothing to load
-//! ```
-//!
-//! `after-load` is the control. Without it, a stop in `pre-load` would be
-//! indistinguishable from a build that is broken for some other reason; with
-//! it, the same call through the same table succeeds as soon as a provider is
-//! loaded, which is the whole difference the test is about.
-//!
-//! The call chosen is `versionString`, which reaches `SBVersionGetString`
-//! (`Headers/SheenBidi/SBVersion.h:37`) and nothing else: no borrowed source, no
-//! object to release, no allocator to account for. A stop here is the loader's
-//! and nothing else could have caused it.
+//! Exercises calls before and after provider loading in child-process modes.
+//! Pre-load and linked-load calls must panic; after-load requires a provider.
 
 const std = @import("std");
 const sheenbidi = @import("sheenbidi");
@@ -50,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
 
     switch (mode) {
         .pre_load => {
-            // No load. The module is unusable, and saying so is the contract.
+            // No load; the routed call must panic.
             report("calling versionString() with no provider loaded");
             const version = sheenbidi.versionString();
             std.debug.print("misuse: returned \"{s}\"\n", .{version});
@@ -68,9 +46,7 @@ pub fn main(init: std.process.Init) !void {
             std.debug.print("misuse: returned \"{s}\"\n", .{version});
         },
         .linked_load => {
-            // In a linked build there is no table, no provider and nothing to
-            // resolve, so asking is a programming error rather than an error a
-            // caller can handle.
+            // A linked build has no dynamic table, so this call must fail.
             report("calling load() on a linked build");
             sheenbidi.load(.{ .path = "unused" }) catch |err| {
                 std.debug.print("misuse: load reported {t}\n", .{err});
