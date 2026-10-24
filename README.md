@@ -41,10 +41,8 @@ WASI supports static linkage only. The default `check` matrix omits WASI when
 
 Requires Zig 0.17.0, a C compiler, and libc. Add the package in `build.zig.zon`:
 
-```zig
-.dependencies = .{
-    .sheenbidi = .{ .path = "../sheenbidi" },
-},
+```sh
+zig fetch --save git+https://github.com/CoffeeImpliesCode/sheenbidi#v3.0.0
 ```
 
 Import its `sheenbidi` module; it carries the C artifact. The consuming
