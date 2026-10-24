@@ -28,7 +28,8 @@ No upstream C source, public header, Unicode table, fixture, or C++ test is modi
 - Zig 0.17.0 still provides `std.Build.Step.TranslateC`; this build uses it instead of a fetched `translate-c` dependency.
 - `-Dlinkage=static|dynamic` selects the artifact; static is the default. `-fsys=sheenbidi` uses an installed library, and `-Druntime=true` generates dispatch for explicit runtime loading.
 - The graph installs headers, relocatable `SheenBidi.pc`, licence and provenance records, and Unicode data. Nix delegates installation to this graph; it does not add a second pkg-config file.
-- `test` runs debug and safe optimization modes. `check` compiles the facade, tests, example, and C core for six targets without running them.
+- Debug static archives record `-fsanitize=undefined` in `Libs.private`. Zig 0.17's pkg-config integration omits `--static`, so linked static system facades enable the full UBSan runtime for all optimization modes.
+- `test` runs debug and safe optimization modes. `check` compiles the facade, tests, example, and C core without running them: six targets for static linkage and five for dynamic linkage (WASI is static-only).
 - `cross-test.profile.sh` sets the standard `test` step, job limit, and timeouts without narrowing the target matrix.
 
 ## Platform boundaries

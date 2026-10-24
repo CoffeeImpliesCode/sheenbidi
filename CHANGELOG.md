@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- Propagate Debug static archive UBSan requirements to C and Zig system consumers; omit static-only WASI from dynamic checks.
+
 Fork changes relative to SheenBidi v3.0.0.
 
 - Port to Zig 0.17.0.

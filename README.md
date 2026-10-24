@@ -34,6 +34,9 @@ configurations used this package's own source-built library; no independent
 external provider was exercised. System-library mode (`-fsys=sheenbidi`) has
 not been tested.
 
+WASI supports static linkage only. The default `check` matrix omits WASI when
+`-Dlinkage=dynamic` is selected; an explicit target checks only that target.
+
 ## Consumption
 
 Requires Zig 0.17.0, a C compiler, and libc. Add the package in `build.zig.zon`:
@@ -57,6 +60,9 @@ exe_mod.addImport("sheenbidi", dep.module("sheenbidi"));
 or `bin/SheenBidi.dll` and `lib/SheenBidi.lib` on Windows. Public headers are
 installed under `include/SheenBidi/`; pkg-config metadata is `SheenBidi.pc`.
 Set `link_libc = true` for a dependent module that uses SheenBidi.
+Debug static archives require UBSan. `pkg-config --static --libs SheenBidi`
+includes `-fsanitize=undefined`; linked static system facades request Zig's
+UBSan runtime in every optimization mode.
 
 Build options:
 
